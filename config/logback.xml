@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration scan="true">
+    <!-- Reset java.util.logging levels. This dramatically improves logging performance for   -->
+    <!-- disabled logs. See http://www.slf4j.org/api/org/slf4j/bridge/SLF4JBridgeHandler.html -->
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+        <resetJUL>true</resetJUL>
+    </contextListener>
+
+    <!-- ====================================================================== -->
+    <!-- Changing the pattern requires a change in our logstash parsing module  -->
+    <!-- ====================================================================== -->
+    <property name="java-pattern"   value="%d{ISO8601, UTC} %-5p [%.15t] %c{1}: %m %X{OBJECT_ID}%X{CLIENT_IP}%X{ELEMENT_ID}%X{USER_ID}%X{CONNECTION_ID}%X{REQUEST_ID}%X{CLIENT_ID}%n"/>
+
+    <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${java-pattern}</pattern>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
+    </appender>
+
+    <appender name="consoleasync" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>10000</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="console"/>
+    </appender>
+
+    <appender name="file" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${logsDir}/cache.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${logsDir}/cache-%i.log.gz</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>10</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>10MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>${java-pattern}</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="fileasync" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>10000</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="file"/>
+    </appender>
+
+    <!-- ====================================================================== -->
+    <!-- L O G G E R S -->
+    <!-- ====================================================================== -->
+    <logger name="com.onshape">
+        <level value="info" />
+    </logger>
+
+    <!-- Root logger -->
+    <root>
+        <level value="info" />
+        <appender-ref ref="fileasync" />
+        <appender-ref ref="consoleasync" />
+    </root>
+</configuration>
