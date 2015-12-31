@@ -1,5 +1,7 @@
 package com.onshape.cache.onheap;
 
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -9,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.metrics.CounterService;
 import org.springframework.stereotype.Service;
 
@@ -17,7 +21,7 @@ import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
 
 @Service
-public class OnHeapImpl implements OnHeap, InitializingBean {
+public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OnHeapImpl.class);
 
     @Value("${maxCacheEntries}")
@@ -64,5 +68,13 @@ public class OnHeapImpl implements OnHeap, InitializingBean {
         keys.remove(key);
         cs.decrement("cache.onheap.count");
         offHeap.remove(key);
+    }
+
+    @Override
+    public Health health() {
+        NumberFormat formatter = new DecimalFormat("#0.00");
+        return new Health.Builder().up()
+            .withDetail("% full", formatter.format(((double) keys.size() / maxCacheEntries) * 100))
+            .build();
     }
 }

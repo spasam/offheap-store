@@ -1,6 +1,8 @@
 package com.onshape.cache.offheap;
 
 import java.lang.reflect.Field;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -11,6 +13,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.metrics.CounterService;
 import org.springframework.boot.actuate.metrics.GaugeService;
 import org.springframework.stereotype.Service;
@@ -29,7 +33,7 @@ import com.onshape.cache.metrics.CacheMetrics;
 import sun.misc.Unsafe;
 
 @Service
-public class OffHeapImpl implements OffHeap, InitializingBean {
+public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OffHeapImpl.class);
 
     private static final Unsafe U;
@@ -167,6 +171,14 @@ public class OffHeapImpl implements OffHeap, InitializingBean {
     @Override
     public boolean contains(String key) throws CacheException {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Health health() {
+        NumberFormat formatter = new DecimalFormat("#0.00");
+        return new Health.Builder().up()
+            .withDetail("% full", formatter.format(((double) totalSize.get() / maxOffHeapSizeBytes) * 100))
+            .build();
     }
 
     private static class HeapEntry {
