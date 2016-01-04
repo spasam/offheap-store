@@ -3,6 +3,10 @@ package com.onshape.cache.offheap;
 import java.lang.reflect.Field;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -23,9 +27,7 @@ import org.springframework.util.Assert;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.RemovalCause;
-import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
-import com.google.common.cache.Weigher;
 import com.onshape.cache.OffHeap;
 import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.metrics.CacheMetrics;
@@ -37,7 +39,6 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OffHeapImpl.class);
 
     private static final Unsafe U;
-
     static {
         try {
             Field field = Unsafe.class.getDeclaredField("theUnsafe");
@@ -46,6 +47,16 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         }
         catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static class HeapEntry {
+        private final long address;
+        private final int sizeBytes;
+
+        private HeapEntry(long address, int sizeBytes) {
+            this.address = address;
+            this.sizeBytes = sizeBytes;
         }
     }
 
@@ -63,10 +74,14 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     @Value("${concurrencyLocks}")
     private int concurrentLocks;
 
-    private AtomicLong totalSize;
+    private AtomicLong allocatedOffHeapSize;
+
     private Lock[] readLocks;
     private Lock[] writeLocks;
+
     private Cache<String, HeapEntry> offHeapEntries;
+    private List<RemovalNotification<String, HeapEntry>> lazyCleaningList = Collections.synchronizedList(
+            new LinkedList<>());
 
     @Override
     public void afterPropertiesSet() throws Exception {
@@ -74,7 +89,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);
         LOG.info("Concurrent locks: {}", concurrentLocks);
 
-        totalSize = new AtomicLong(0);
+        allocatedOffHeapSize = new AtomicLong(0);
 
         readLocks = new Lock[concurrentLocks];
         writeLocks = new Lock[concurrentLocks];
@@ -87,31 +102,12 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         offHeapEntries = CacheBuilder.newBuilder()
             .initialCapacity(maxOffHeapEntries)
             .maximumWeight(maxOffHeapSizeBytes)
-            .weigher(new Weigher<String, HeapEntry>() {
-                @Override
-                public int weigh(String key, HeapEntry value) {
-                    return value.sizeBytes;
-                }
-            })
-            .removalListener(new RemovalListener<String, HeapEntry>() {
-                @Override
-                public void onRemoval(RemovalNotification<String, HeapEntry> notification) {
-                    RemovalCause cause = notification.getCause();
-                    Assert.isTrue(cause == RemovalCause.SIZE || cause == RemovalCause.EXPLICIT);
-
-                    HeapEntry heapEntry = notification.getValue();
-                    U.freeMemory(heapEntry.address);
-
-                    gs.submit("cache.offheap.size", totalSize.addAndGet(-1 * heapEntry.sizeBytes));
-                    cs.decrement("cache.offheap.count");
-
-                    if (cause == RemovalCause.SIZE) {
-                        LOG.info("Evicted from offheap: {}", notification.getKey());
-                        cs.increment("cache.offheap.evicted");
-                    }
-                }
-            })
+            .weigher((String key, HeapEntry value) -> value.sizeBytes)
+            .removalListener((RemovalNotification<String, HeapEntry> rn) -> lazyCleaningList.add(rn))
             .build();
+
+        Executors.newSingleThreadExecutor((Runnable r) -> new Thread(r, "oh-cleaner"))
+            .submit(() -> freeOffHeapEntries());
     }
 
     @Override
@@ -120,7 +116,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         long start = System.currentTimeMillis();
 
         long address = U.allocateMemory(sizeBytes);
-        gs.submit("cache.offheap.size", totalSize.addAndGet(sizeBytes));
+        gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(sizeBytes));
 
         U.copyMemory(value, Unsafe.ARRAY_BYTE_BASE_OFFSET, null, address, sizeBytes);
 
@@ -177,17 +173,35 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     public Health health() {
         NumberFormat formatter = new DecimalFormat("#0.00");
         return new Health.Builder().up()
-            .withDetail("% full", formatter.format(((double) totalSize.get() / maxOffHeapSizeBytes) * 100))
+            .withDetail("% full", formatter.format(((double) allocatedOffHeapSize.get() / maxOffHeapSizeBytes) * 100))
             .build();
     }
 
-    private static class HeapEntry {
-        private final long address;
-        private final int sizeBytes;
+    private void freeOffHeapEntries() {
+        while (true) {
+            while (!lazyCleaningList.isEmpty()) {
+                RemovalNotification<String, HeapEntry> notification = lazyCleaningList.remove(0);
+                RemovalCause cause = notification.getCause();
+                Assert.isTrue(cause == RemovalCause.SIZE || cause == RemovalCause.EXPLICIT);
 
-        private HeapEntry(long address, int sizeBytes) {
-            this.address = address;
-            this.sizeBytes = sizeBytes;
+                HeapEntry heapEntry = notification.getValue();
+                U.freeMemory(heapEntry.address);
+
+                gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(-1 * heapEntry.sizeBytes));
+                cs.decrement("cache.offheap.count");
+
+                if (cause == RemovalCause.SIZE) {
+                    LOG.info("Evicted from offheap: {}", notification.getKey());
+                    cs.increment("cache.offheap.evicted");
+                }
+            }
+
+            try {
+                Thread.sleep(1000L);
+            }
+            catch (InterruptedException e) {
+                LOG.warn("Interrupted while waiting in off heap cleaner: {}", e.getMessage());
+            }
         }
     }
 }
