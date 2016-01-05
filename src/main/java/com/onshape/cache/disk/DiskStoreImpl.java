@@ -60,19 +60,19 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
         try {
             return Files.exists(Paths.get(root, key));
         } finally {
-            reportMetrics("diskstore.head", null, start);
+            reportMetrics("cache.diskstore.head", null, start);
         }
     }
 
     @Override
     public ByteBuffer get(String key) throws CacheException {
+        long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         if (Files.notExists(path)) {
-            increment("diskstore.get.miss");
+            increment("cache.diskstore.get.miss");
             return null;
         }
 
-        long start = System.currentTimeMillis();
         try {
             int size = (int) Files.size(path);
             ByteBuffer buffer = bbc.get(size);
@@ -85,7 +85,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
                     raf.readFully(buffer.array(), 0, size);
                 }
                 buffer.position(size);
-                reportMetrics("diskstore.get", null, start);
+                reportMetrics("cache.diskstore.get", null, start);
 
                 return buffer;
             }
@@ -98,11 +98,11 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
 
     @Async
     @Override
-    public void remove(String key) throws CacheException {
+    public void removeAsync(String key) throws CacheException {
         long start = System.currentTimeMillis();
         try {
             Files.deleteIfExists(Paths.get(root, key));
-            reportMetrics("diskstore.delete", null, start);
+            reportMetrics("cache.diskstore.delete", null, start);
         }
         catch (IOException e) {
             LOG.error("Error deleting file for entry: {}", key, e);
@@ -112,7 +112,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
 
     @Async
     @Override
-    public void put(String key, byte[] value) throws CacheException {
+    public void putAsync(String key, byte[] value) throws CacheException {
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
@@ -122,7 +122,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
                 raf.setLength(value.length);
                 raf.write(value);
             }
-            reportMetrics("diskstore.put", null, start);
+            reportMetrics("cache.diskstore.put", null, start);
         }
         catch (IOException e) {
             LOG.error("Failed to persist entry to disk: {}", key, e);

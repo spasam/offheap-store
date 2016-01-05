@@ -1,4 +1,4 @@
-package com.onshape.cache.disk;
+package com.onshape.cache.config;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.Executor;
@@ -17,20 +17,20 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class AsyncConfig implements AsyncConfigurer {
     private static final Logger LOG = LoggerFactory.getLogger(AsyncConfig.class);
 
-    @Value("${diskStoreCorePoolSize}")
-    private int diskStoreCorePoolSize;
-    @Value("${diskStoreMaxPoolSize}")
-    private int diskStoreMaxPoolSize;
+    @Value("${asyncCorePoolSize}")
+    private int asyncCorePoolSize;
+    @Value("${asyncMaxPoolSize}")
+    private int asyncMaxPoolSize;
 
     @Override
     public Executor getAsyncExecutor() {
-        LOG.info("Disk store core pool size: {}", diskStoreCorePoolSize);
-        LOG.info("Disk store max pool size: {}", diskStoreMaxPoolSize);
+        LOG.info("Async core pool size: {}", asyncCorePoolSize);
+        LOG.info("Async max pool size: {}", asyncMaxPoolSize);
 
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(diskStoreCorePoolSize);
-        executor.setMaxPoolSize(diskStoreMaxPoolSize);
-        executor.setThreadNamePrefix("ds-");
+        executor.setCorePoolSize(asyncCorePoolSize);
+        executor.setMaxPoolSize(asyncMaxPoolSize);
+        executor.setThreadNamePrefix("async-");
         executor.initialize();
 
         return executor;

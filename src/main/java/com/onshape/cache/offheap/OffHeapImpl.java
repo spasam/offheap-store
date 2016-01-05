@@ -1,6 +1,5 @@
 package com.onshape.cache.offheap;
 
-import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
@@ -20,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
 
@@ -32,48 +32,45 @@ import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.metrics.AbstractMetricsProvider;
 import com.onshape.cache.util.ByteBufferCache;
 
-import sun.misc.Unsafe;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.CompositeByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
 
 @Service
 public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OffHeapImpl.class);
-
-    private static final Unsafe U;
-
-    static {
-        try {
-            Field field = Unsafe.class.getDeclaredField("theUnsafe");
-            field.setAccessible(true);
-            U = (Unsafe) field.get(null);
-        }
-        catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
+    private static final int DIRECT_ARENA_COUNT = 16;
+    private static final int PAGE_SIZE = 8 * 1024;
+    private static final int MAX_ORDER = 7; // PAGE_SIZE << MAX_ORDER = 1MB
+    private static final int TINY_CACHE_SIZE = 512; // We don't use tiny cache
+    private static final int SMALL_CACHE_SIZE = 256; // We don't use small cache
+    private static final int NORMAL_CACHE_SIZE = 64 * 1024;
 
     private static class HeapEntry {
-        private final long address;
         private final int sizeBytes;
+        private final int normalizedSizeBytes;
+        private final ByteBuf buffer;
 
-        private HeapEntry(long address, int sizeBytes) {
-            this.address = address;
+        private HeapEntry(int sizeBytes, ByteBuf buffer) {
             this.sizeBytes = sizeBytes;
+            this.normalizedSizeBytes = normalizedSize(sizeBytes);
+            this.buffer = buffer;
         }
     }
 
     @Autowired
-    private ByteBufferCache bbc;
+    private ByteBufferCache byteBufferCache;
 
     @Value("${offHeapDisabled}")
     private boolean offHeapDisabled;
     @Value("${maxOffHeapSizeBytes}")
     private long maxOffHeapSizeBytes;
-    @Value("${maxOffHeapEntries}")
-    private int maxOffHeapEntries;
     @Value("${concurrencyLocks}")
     private int concurrentLocks;
 
+    private int maxEntrySizeBytes;
     private AtomicLong allocatedOffHeapSize;
+    private PooledByteBufAllocator allocator;
 
     private Lock[] readLocks;
     private Lock[] writeLocks;
@@ -88,11 +85,17 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
             return;
         }
 
+        int maxOffHeapEntries = (int) (maxOffHeapSizeBytes / NORMAL_CACHE_SIZE);
+        maxEntrySizeBytes = PAGE_SIZE << MAX_ORDER;
+
         LOG.info("Max offheap size bytes: {}", maxOffHeapSizeBytes);
+        LOG.info("Max entry size bytes: {}", maxEntrySizeBytes);
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);
         LOG.info("Concurrent locks: {}", concurrentLocks);
 
         allocatedOffHeapSize = new AtomicLong(0);
+        allocator = new PooledByteBufAllocator(true, 0, DIRECT_ARENA_COUNT, PAGE_SIZE, MAX_ORDER,
+                TINY_CACHE_SIZE, SMALL_CACHE_SIZE, NORMAL_CACHE_SIZE);
 
         readLocks = new Lock[concurrentLocks];
         writeLocks = new Lock[concurrentLocks];
@@ -105,7 +108,7 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
         offHeapEntries = CacheBuilder.newBuilder()
             .initialCapacity(maxOffHeapEntries)
             .maximumWeight(maxOffHeapSizeBytes)
-            .weigher((String key, HeapEntry value) -> value.sizeBytes)
+            .weigher((String key, HeapEntry value) -> value.normalizedSizeBytes)
             .removalListener((RemovalNotification<String, HeapEntry> rn) -> lazyCleaningList.add(rn))
             .build();
 
@@ -113,9 +116,10 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
             .submit(() -> freeOffHeapEntries());
     }
 
+    @Async
     @Override
-    public void put(String key, byte[] value) throws CacheException {
-        put(key, value, value.length);
+    public void putAsync(String key, byte[] value, int length) throws CacheException {
+        put(key, value, length);
     }
 
     @Override
@@ -123,17 +127,23 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
         if (offHeapDisabled) {
             return;
         }
+        if (length > maxEntrySizeBytes) {
+            increment("cache.offheap.entry.size.exceed");
+            return;
+        }
 
         long start = System.currentTimeMillis();
+        int normalizedSizeBytes = normalizedSize(length);
+        ByteBuf buf = allocateBuffer(normalizedSizeBytes);
+        buf.writeBytes(value, 0, length);
 
-        long address = U.allocateMemory(length);
-        U.copyMemory(value, Unsafe.ARRAY_BYTE_BASE_OFFSET, null, address, length);
+        offHeapEntries.put(key, new HeapEntry(length, buf));
 
-        offHeapEntries.put(key, new HeapEntry(address, length));
-
-        reportMetrics("offheap.put", null, start);
-        gauge("offheap.size", allocatedOffHeapSize.addAndGet(length));
-        increment("offheap.count");
+        allocatedOffHeapSize.addAndGet(normalizedSizeBytes);
+        increment("cache.offheap.size", normalizedSizeBytes);
+        increment("cache.offheap.wasted", (normalizedSizeBytes - length));
+        increment("cache.offheap.count");
+        reportMetrics("cache.offheap.put", null, start);
     }
 
     @Override
@@ -143,29 +153,31 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
         }
 
         long start = System.currentTimeMillis();
+        ByteBuffer buffer;
 
         Lock readLock = readLocks[Math.abs(key.hashCode()) % concurrentLocks];
         readLock.lock();
         try {
             HeapEntry heapEntry = offHeapEntries.getIfPresent(key);
             if (heapEntry == null) {
-                increment("offheap.get.miss");
+                increment("cache.offheap.get.miss");
                 return null;
             }
 
-            ByteBuffer buffer = bbc.get(heapEntry.sizeBytes);
-            U.copyMemory(null, heapEntry.address, buffer.array(), Unsafe.ARRAY_BYTE_BASE_OFFSET, heapEntry.sizeBytes);
+            buffer = byteBufferCache.get(heapEntry.sizeBytes);
+            heapEntry.buffer.getBytes(0, buffer.array(), 0, heapEntry.sizeBytes);
             buffer.position(heapEntry.sizeBytes);
-
-            return buffer;
         } finally {
             readLock.unlock();
-            reportMetrics("offheap.get", null, start);
         }
+        reportMetrics("cache.offheap.get", null, start);
+
+        return buffer;
     }
 
+    @Async
     @Override
-    public void remove(String key) {
+    public void removeAsync(String key) {
         if (offHeapDisabled) {
             return;
         }
@@ -179,12 +191,18 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
         } finally {
             writeLock.unlock();
         }
-        reportMetrics("offheap.delete", null, start);
+
+        reportMetrics("cache.offheap.delete", null, start);
     }
 
     @Override
-    public boolean contains(String key) throws CacheException {
-        return offHeapEntries.getIfPresent(key) != null;
+    public boolean isEnabled() {
+        return !offHeapDisabled;
+    }
+
+    @Override
+    public boolean accepts(int sizeBytes) {
+        return !offHeapDisabled && sizeBytes <= maxEntrySizeBytes;
     }
 
     @Override
@@ -200,25 +218,28 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
             while (!lazyCleaningList.isEmpty()) {
                 RemovalNotification<String, HeapEntry> notification = lazyCleaningList.remove(0);
                 RemovalCause cause = notification.getCause();
-                Assert.isTrue(cause == RemovalCause.SIZE || cause == RemovalCause.EXPLICIT);
+                Assert.isTrue(cause == RemovalCause.SIZE // Size exceeded
+                        || cause == RemovalCause.EXPLICIT // Manually deleted by user
+                        || cause == RemovalCause.REPLACED); // Entry is being replaced
 
-                int sizeBytes;
+                HeapEntry heapEntry;
                 Lock writeLock = writeLocks[Math.abs(notification.getKey().hashCode()) % concurrentLocks];
                 writeLock.lock();
                 try {
-                    HeapEntry heapEntry = notification.getValue();
-                    U.freeMemory(heapEntry.address);
-                    sizeBytes = heapEntry.sizeBytes;
+                    heapEntry = notification.getValue();
+                    heapEntry.buffer.release();
                 } finally {
                     writeLock.unlock();
                 }
 
-                gauge("offheap.size", allocatedOffHeapSize.addAndGet(-1 * sizeBytes));
-                decrement("offheap.count");
+                allocatedOffHeapSize.addAndGet(-1 * heapEntry.normalizedSizeBytes);
+                decrement("cache.offheap.size", heapEntry.normalizedSizeBytes);
+                decrement("cache.offheap.wasted", (heapEntry.normalizedSizeBytes - heapEntry.sizeBytes));
+                decrement("cache.offheap.count");
 
                 if (cause == RemovalCause.SIZE) {
                     LOG.info("Evicted from offheap: {}", notification.getKey());
-                    increment("offheap.evicted");
+                    increment("cache.offheap.evicted");
                 }
             }
 
@@ -230,5 +251,23 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
                 LOG.warn("Interrupted while waiting in off heap cleaner: {}", e.getMessage());
             }
         }
+    }
+
+    private ByteBuf allocateBuffer(int normalizedSizeBytes) {
+        if (normalizedSizeBytes == NORMAL_CACHE_SIZE) {
+            return allocator.directBuffer(normalizedSizeBytes, normalizedSizeBytes);
+        }
+
+        int count = NORMAL_CACHE_SIZE / normalizedSizeBytes;
+        CompositeByteBuf buf = allocator.compositeDirectBuffer(count);
+        for (int i = 0; i < count; i++) {
+            buf.addComponent(allocator.directBuffer(NORMAL_CACHE_SIZE, NORMAL_CACHE_SIZE));
+        }
+
+        return buf;
+    }
+
+    private static int normalizedSize(int sizeBytes) {
+        return (int) Math.ceil(sizeBytes / NORMAL_CACHE_SIZE) * NORMAL_CACHE_SIZE;
     }
 }

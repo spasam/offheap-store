@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import com.onshape.cache.Cache;
 import com.onshape.cache.DiskStore;
+import com.onshape.cache.OffHeap;
 import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
 
@@ -15,24 +16,30 @@ public class CacheImpl implements Cache {
     @Autowired
     private OnHeap onHeap;
     @Autowired
+    private OffHeap offHeap;
+    @Autowired
     private DiskStore diskStore;
 
     @Override
     public void put(String key, byte[] value) throws CacheException {
-        onHeap.put(key, value);
-        diskStore.put(key, value);
+        onHeap.put(key);
+        if (offHeap.accepts(value.length)) {
+            offHeap.putAsync(key, value, value.length);
+        }
+        diskStore.putAsync(key, value);
     }
 
     @Override
     public ByteBuffer get(String key) throws CacheException {
-        ByteBuffer buffer = onHeap.get(key);
+        // ByteBuffer is thread local. So all of these calls have to be synchronous
+        ByteBuffer buffer = offHeap.get(key);
         if (buffer != null) {
             return buffer;
         }
 
         buffer = diskStore.get(key);
         if (buffer != null) {
-            onHeap.put(key, buffer.array(), buffer.position());
+            offHeap.put(key, buffer.array(), buffer.position());
         }
 
         return buffer;
@@ -40,14 +47,24 @@ public class CacheImpl implements Cache {
 
     @Override
     public void remove(String key) throws CacheException {
-        onHeap.remove(key);
-        diskStore.remove(key);
+        if (onHeap.remove(key)) {
+            if (offHeap.isEnabled()) {
+                offHeap.removeAsync(key);
+            }
+            diskStore.removeAsync(key);
+        }
     }
 
     @Override
     public boolean contains(String key) throws CacheException {
         if (!onHeap.contains(key)) {
-            return diskStore.contains(key);
+            // If this service was restarted, onheap entries will be empty. Re-populate
+            if (diskStore.contains(key)) {
+                onHeap.put(key);
+                return true;
+            }
+
+            return false;
         }
 
         return true;
