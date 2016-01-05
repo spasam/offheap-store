@@ -1,5 +1,6 @@
 package com.onshape.cache.onheap;
 
+import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.Collections;
@@ -44,17 +45,23 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
 
     @Override
     public void put(String key, byte[] value) throws CacheException {
+        put(key, value, value.length);
+    }
+
+    @Override
+    public void put(String key, byte[] value, int length) throws CacheException {
         if (keys.remove(key)) {
             cs.decrement("cache.onheap.count");
             offHeap.remove(key);
         }
-        offHeap.put(key, value);
+
+        offHeap.put(key, value, length);
         keys.add(key);
         cs.increment("cache.onheap.count");
     }
 
     @Override
-    public byte[] get(String key) throws CacheException {
+    public ByteBuffer get(String key) throws CacheException {
         return offHeap.get(key);
     }
 

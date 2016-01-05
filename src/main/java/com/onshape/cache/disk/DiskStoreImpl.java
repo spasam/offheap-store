@@ -3,6 +3,9 @@ package com.onshape.cache.disk;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,16 +27,22 @@ import org.springframework.stereotype.Service;
 import com.onshape.cache.DiskStore;
 import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.metrics.CacheMetrics;
+import com.onshape.cache.util.ByteBufferCache;
 
 @Service
 public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(DiskStoreImpl.class);
 
     @Autowired
+    private ByteBufferCache bbc;
+    @Autowired
     private CounterService cs;
     @Autowired
     private CacheMetrics metrics;
 
+    /** Threshold beyond which memory mapping will be used for reading from and writing to files */
+    @Value("${memoryMapThreshold}")
+    private int memoryMapThreshold;
     @Value("${diskRoot}")
     private String root;
 
@@ -61,7 +70,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     }
 
     @Override
-    public byte[] get(String key) throws CacheException {
+    public ByteBuffer get(String key) throws CacheException {
         Path path = Paths.get(root, key);
         if (Files.notExists(path)) {
             cs.increment("cache.diskstore.get.miss");
@@ -70,13 +79,20 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
         long start = System.currentTimeMillis();
         try {
-            long size = Files.size(path);
-            byte[] bytes = new byte[(int) size];
+            int size = (int) Files.size(path);
+            ByteBuffer buffer = bbc.get(size);
+
             try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
-                raf.readFully(bytes);
+                if (size > memoryMapThreshold) {
+                    MappedByteBuffer mappedBuffer = raf.getChannel().map(MapMode.READ_ONLY, 0, size);
+                    mappedBuffer.get(buffer.array(), 0, size);
+                } else {
+                    raf.readFully(buffer.array(), 0, size);
+                }
+                buffer.position(size);
                 metrics.report("diskstore.get", null, start);
 
-                return bytes;
+                return buffer;
             }
         }
         catch (IOException e) {
@@ -105,8 +121,12 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
-            raf.setLength(value.length);
-            raf.write(value);
+            if (value.length > memoryMapThreshold) {
+                raf.getChannel().map(MapMode.READ_WRITE, 0, value.length).put(value);
+            } else {
+                raf.setLength(value.length);
+                raf.write(value);
+            }
             metrics.report("diskstore.put", null, start);
         }
         catch (IOException e) {

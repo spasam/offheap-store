@@ -1,5 +1,7 @@
 package com.onshape.cache;
 
+import java.nio.ByteBuffer;
+
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 
@@ -11,7 +13,7 @@ import com.onshape.cache.exception.CacheException;
 public interface Cache {
     void put(@NotNull @Size(min = 1) String key, @NotNull @Size(min = 1) byte[] value) throws CacheException;
 
-    byte[] get(@NotNull @Size(min = 1) String key) throws CacheException;
+    ByteBuffer get(@NotNull @Size(min = 1) String key) throws CacheException;
 
     boolean contains(@NotNull @Size(min = 1) String key) throws CacheException;
 

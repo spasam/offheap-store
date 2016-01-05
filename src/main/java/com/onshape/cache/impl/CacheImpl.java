@@ -1,5 +1,7 @@
 package com.onshape.cache.impl;
 
+import java.nio.ByteBuffer;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -22,18 +24,18 @@ public class CacheImpl implements Cache {
     }
 
     @Override
-    public byte[] get(String key) throws CacheException {
-        byte[] value = onHeap.get(key);
-        if (value != null) {
-            return value;
+    public ByteBuffer get(String key) throws CacheException {
+        ByteBuffer buffer = onHeap.get(key);
+        if (buffer != null) {
+            return buffer;
         }
 
-        value = diskStore.get(key);
-        if (value != null) {
-            onHeap.put(key, value);
+        buffer = diskStore.get(key);
+        if (buffer != null) {
+            onHeap.put(key, buffer.array(), buffer.position());
         }
 
-        return value;
+        return buffer;
     }
 
     @Override

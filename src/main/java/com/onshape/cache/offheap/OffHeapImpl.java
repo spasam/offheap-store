@@ -1,6 +1,7 @@
 package com.onshape.cache.offheap;
 
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.Collections;
@@ -31,6 +32,7 @@ import com.google.common.cache.RemovalNotification;
 import com.onshape.cache.OffHeap;
 import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.metrics.CacheMetrics;
+import com.onshape.cache.util.ByteBufferCache;
 
 import sun.misc.Unsafe;
 
@@ -61,12 +63,16 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     }
 
     @Autowired
+    private ByteBufferCache bbc;
+    @Autowired
     private CounterService cs;
     @Autowired
     private GaugeService gs;
     @Autowired
     private CacheMetrics metrics;
 
+    @Value("${offHeapDisabled}")
+    private boolean offHeapDisabled;
     @Value("${maxOffHeapSizeBytes}")
     private long maxOffHeapSizeBytes;
     @Value("${maxOffHeapEntries}")
@@ -85,6 +91,10 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
     @Override
     public void afterPropertiesSet() throws Exception {
+        if (offHeapDisabled) {
+            return;
+        }
+
         LOG.info("Max offheap size bytes: {}", maxOffHeapSizeBytes);
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);
         LOG.info("Concurrent locks: {}", concurrentLocks);
@@ -112,23 +122,33 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
     @Override
     public void put(String key, byte[] value) throws CacheException {
-        int sizeBytes = value.length;
+        put(key, value, value.length);
+    }
+
+    @Override
+    public void put(String key, byte[] value, int length) throws CacheException {
+        if (offHeapDisabled) {
+            return;
+        }
+
         long start = System.currentTimeMillis();
 
-        long address = U.allocateMemory(sizeBytes);
-        gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(sizeBytes));
+        long address = U.allocateMemory(length);
+        U.copyMemory(value, Unsafe.ARRAY_BYTE_BASE_OFFSET, null, address, length);
 
-        U.copyMemory(value, Unsafe.ARRAY_BYTE_BASE_OFFSET, null, address, sizeBytes);
-
-        offHeapEntries.put(key, new HeapEntry(address, sizeBytes));
+        offHeapEntries.put(key, new HeapEntry(address, length));
 
         metrics.report("offheap.put", null, start);
+        gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(length));
         cs.increment("cache.offheap.count");
     }
 
     @Override
-    public byte[] get(String key) throws CacheException {
-        byte[] value;
+    public ByteBuffer get(String key) throws CacheException {
+        if (offHeapDisabled) {
+            return null;
+        }
+
         long start = System.currentTimeMillis();
 
         Lock readLock = readLocks[Math.abs(key.hashCode()) % concurrentLocks];
@@ -140,18 +160,23 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                 return null;
             }
 
-            value = new byte[heapEntry.sizeBytes];
-            U.copyMemory(null, heapEntry.address, value, Unsafe.ARRAY_BYTE_BASE_OFFSET, heapEntry.sizeBytes);
+            ByteBuffer buffer = bbc.get(heapEntry.sizeBytes);
+            U.copyMemory(null, heapEntry.address, buffer.array(), Unsafe.ARRAY_BYTE_BASE_OFFSET, heapEntry.sizeBytes);
+            buffer.position(heapEntry.sizeBytes);
+
+            return buffer;
         } finally {
             readLock.unlock();
+            metrics.report("offheap.get", null, start);
         }
-        metrics.report("offheap.get", null, start);
-
-        return value;
     }
 
     @Override
     public void remove(String key) {
+        if (offHeapDisabled) {
+            return;
+        }
+
         long start = System.currentTimeMillis();
 
         Lock writeLock = writeLocks[Math.abs(key.hashCode()) % concurrentLocks];
@@ -166,7 +191,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
     @Override
     public boolean contains(String key) throws CacheException {
-        throw new UnsupportedOperationException();
+        return offHeapEntries.getIfPresent(key) != null;
     }
 
     @Override
@@ -184,10 +209,18 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                 RemovalCause cause = notification.getCause();
                 Assert.isTrue(cause == RemovalCause.SIZE || cause == RemovalCause.EXPLICIT);
 
-                HeapEntry heapEntry = notification.getValue();
-                U.freeMemory(heapEntry.address);
+                int sizeBytes;
+                Lock writeLock = writeLocks[Math.abs(notification.getKey().hashCode()) % concurrentLocks];
+                writeLock.lock();
+                try {
+                    HeapEntry heapEntry = notification.getValue();
+                    U.freeMemory(heapEntry.address);
+                    sizeBytes = heapEntry.sizeBytes;
+                } finally {
+                    writeLock.unlock();
+                }
 
-                gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(-1 * heapEntry.sizeBytes));
+                gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(-1 * sizeBytes));
                 cs.decrement("cache.offheap.count");
 
                 if (cause == RemovalCause.SIZE) {
@@ -196,6 +229,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                 }
             }
 
+            // Before cleaning the list again, sleep for a second
             try {
                 Thread.sleep(1000L);
             }
