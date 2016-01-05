@@ -20,8 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.boot.actuate.metrics.CounterService;
-import org.springframework.boot.actuate.metrics.GaugeService;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
 
@@ -31,16 +29,17 @@ import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalNotification;
 import com.onshape.cache.OffHeap;
 import com.onshape.cache.exception.CacheException;
-import com.onshape.cache.metrics.CacheMetrics;
+import com.onshape.cache.metrics.AbstractMetricsProvider;
 import com.onshape.cache.util.ByteBufferCache;
 
 import sun.misc.Unsafe;
 
 @Service
-public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
+public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OffHeapImpl.class);
 
     private static final Unsafe U;
+
     static {
         try {
             Field field = Unsafe.class.getDeclaredField("theUnsafe");
@@ -64,12 +63,6 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
     @Autowired
     private ByteBufferCache bbc;
-    @Autowired
-    private CounterService cs;
-    @Autowired
-    private GaugeService gs;
-    @Autowired
-    private CacheMetrics metrics;
 
     @Value("${offHeapDisabled}")
     private boolean offHeapDisabled;
@@ -138,9 +131,9 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
         offHeapEntries.put(key, new HeapEntry(address, length));
 
-        metrics.report("offheap.put", null, start);
-        gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(length));
-        cs.increment("cache.offheap.count");
+        reportMetrics("offheap.put", null, start);
+        gauge("offheap.size", allocatedOffHeapSize.addAndGet(length));
+        increment("offheap.count");
     }
 
     @Override
@@ -156,7 +149,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         try {
             HeapEntry heapEntry = offHeapEntries.getIfPresent(key);
             if (heapEntry == null) {
-                cs.increment("cache.offheap.get.miss");
+                increment("offheap.get.miss");
                 return null;
             }
 
@@ -167,7 +160,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
             return buffer;
         } finally {
             readLock.unlock();
-            metrics.report("offheap.get", null, start);
+            reportMetrics("offheap.get", null, start);
         }
     }
 
@@ -186,7 +179,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         } finally {
             writeLock.unlock();
         }
-        metrics.report("offheap.delete", null, start);
+        reportMetrics("offheap.delete", null, start);
     }
 
     @Override
@@ -220,12 +213,12 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                     writeLock.unlock();
                 }
 
-                gs.submit("cache.offheap.size", allocatedOffHeapSize.addAndGet(-1 * sizeBytes));
-                cs.decrement("cache.offheap.count");
+                gauge("offheap.size", allocatedOffHeapSize.addAndGet(-1 * sizeBytes));
+                decrement("offheap.count");
 
                 if (cause == RemovalCause.SIZE) {
                     LOG.info("Evicted from offheap: {}", notification.getKey());
-                    cs.increment("cache.offheap.evicted");
+                    increment("offheap.evicted");
                 }
             }
 

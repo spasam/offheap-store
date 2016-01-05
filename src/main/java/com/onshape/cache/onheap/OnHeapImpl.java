@@ -14,15 +14,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.boot.actuate.metrics.CounterService;
 import org.springframework.stereotype.Service;
 
 import com.onshape.cache.OffHeap;
 import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
+import com.onshape.cache.metrics.AbstractMetricsProvider;
 
 @Service
-public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
+public class OnHeapImpl extends AbstractMetricsProvider implements OnHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OnHeapImpl.class);
 
     @Value("${maxCacheEntries}")
@@ -32,8 +32,6 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
 
     @Autowired
     private OffHeap offHeap;
-    @Autowired
-    private CounterService cs;
 
     @Override
     public void afterPropertiesSet() {
@@ -51,13 +49,13 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     @Override
     public void put(String key, byte[] value, int length) throws CacheException {
         if (keys.remove(key)) {
-            cs.decrement("cache.onheap.count");
+            decrement("onheap.count");
             offHeap.remove(key);
         }
 
         offHeap.put(key, value, length);
         keys.add(key);
-        cs.increment("cache.onheap.count");
+        increment("onheap.count");
     }
 
     @Override
@@ -73,7 +71,7 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     @Override
     public void remove(String key) throws CacheException {
         keys.remove(key);
-        cs.decrement("cache.onheap.count");
+        decrement("onheap.count");
         offHeap.remove(key);
     }
 

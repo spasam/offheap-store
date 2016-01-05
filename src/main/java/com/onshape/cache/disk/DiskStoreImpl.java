@@ -20,25 +20,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.boot.actuate.metrics.CounterService;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import com.onshape.cache.DiskStore;
 import com.onshape.cache.exception.CacheException;
-import com.onshape.cache.metrics.CacheMetrics;
+import com.onshape.cache.metrics.AbstractMetricsProvider;
 import com.onshape.cache.util.ByteBufferCache;
 
 @Service
-public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicator {
+public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(DiskStoreImpl.class);
 
     @Autowired
     private ByteBufferCache bbc;
-    @Autowired
-    private CounterService cs;
-    @Autowired
-    private CacheMetrics metrics;
 
     /** Threshold beyond which memory mapping will be used for reading from and writing to files */
     @Value("${memoryMapThreshold}")
@@ -65,7 +60,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         try {
             return Files.exists(Paths.get(root, key));
         } finally {
-            metrics.report("diskstore.head", null, start);
+            reportMetrics("diskstore.head", null, start);
         }
     }
 
@@ -73,7 +68,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     public ByteBuffer get(String key) throws CacheException {
         Path path = Paths.get(root, key);
         if (Files.notExists(path)) {
-            cs.increment("cache.diskstore.get.miss");
+            increment("diskstore.get.miss");
             return null;
         }
 
@@ -90,7 +85,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
                     raf.readFully(buffer.array(), 0, size);
                 }
                 buffer.position(size);
-                metrics.report("diskstore.get", null, start);
+                reportMetrics("diskstore.get", null, start);
 
                 return buffer;
             }
@@ -107,7 +102,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         long start = System.currentTimeMillis();
         try {
             Files.deleteIfExists(Paths.get(root, key));
-            metrics.report("diskstore.delete", null, start);
+            reportMetrics("diskstore.delete", null, start);
         }
         catch (IOException e) {
             LOG.error("Error deleting file for entry: {}", key, e);
@@ -127,7 +122,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
                 raf.setLength(value.length);
                 raf.write(value);
             }
-            metrics.report("diskstore.put", null, start);
+            reportMetrics("diskstore.put", null, start);
         }
         catch (IOException e) {
             LOG.error("Failed to persist entry to disk: {}", key, e);

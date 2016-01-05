@@ -21,19 +21,17 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import com.onshape.cache.Cache;
 import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.exception.EntryNotFoundException;
-import com.onshape.cache.metrics.CacheMetrics;
+import com.onshape.cache.metrics.AbstractMetricsProvider;
 
 @Controller
 @RequestMapping("/")
-public class CacheController {
+public class CacheController extends AbstractMetricsProvider {
     private static final Logger LOG = LoggerFactory.getLogger(CacheController.class);
     private static final String OCTET_STREAM = "application/octet-stream";
 
     @Qualifier("cache")
     @Autowired
     private Cache cache;
-    @Autowired
-    private CacheMetrics metrics;
 
     @RequestMapping(path = "{c}/{k}",
             method = RequestMethod.PUT,
@@ -48,9 +46,9 @@ public class CacheController {
         long start = System.currentTimeMillis();
         cache.put(c + k, bytes);
 
-        int took = metrics.report("put", c, start);
-        metrics.increment("put.total.size.", c, size);
-        metrics.increment("put.total.time.", c, took);
+        int took = reportMetrics("put", c, start);
+        increment("put.total.size.", c, size);
+        increment("put.total.time.", c, took);
     }
 
     @RequestMapping(path = "{c}/{k}",
@@ -63,19 +61,19 @@ public class CacheController {
         long start = System.currentTimeMillis();
         ByteBuffer buffer = cache.get(c + k);
         if (buffer == null) {
-            metrics.report("get.miss", c, 0L);
+            reportMetrics("get.miss", c, 0L);
             throw new EntryNotFoundException();
         }
 
-        int took = metrics.report("get", c, start);
+        int took = reportMetrics("get", c, start);
 
         response.setStatus(HttpStatus.OK.value());
         response.setContentType(OCTET_STREAM);
         response.setContentLength(buffer.position());
         response.getOutputStream().write(buffer.array(), 0, buffer.position());
 
-        metrics.increment("get.total.size.", c, buffer.position());
-        metrics.increment("get.total.time.", c, took);
+        increment("get.total.size.", c, buffer.position());
+        increment("get.total.time.", c, took);
     }
 
     @RequestMapping(path = "{c}/{k}",
@@ -84,7 +82,7 @@ public class CacheController {
     public void exists(@PathVariable("c") String c, @PathVariable("k") String k) throws CacheException {
         LOG.info("Head: {}/{}", c, k);
         if (!cache.contains(c + k)) {
-            metrics.report("head.miss", c, 0L);
+            reportMetrics("head.miss", c, 0L);
             throw new EntryNotFoundException();
         }
     }
@@ -97,12 +95,12 @@ public class CacheController {
 
         String key = c + k;
         if (!cache.contains(key)) {
-            metrics.report("delete.miss", c, 0L);
+            reportMetrics("delete.miss", c, 0L);
             throw new EntryNotFoundException();
         }
 
         long start = System.currentTimeMillis();
         cache.remove(key);
-        metrics.report("delete", c, start);
+        reportMetrics("delete", c, start);
     }
 }
