@@ -118,15 +118,17 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
 
     @Async
     @Override
-    public void putAsync(String key, byte[] value, int length) throws CacheException {
-        put(key, value, length);
+    public void putAsync(String key, byte[] value) throws CacheException {
+        put(key, ByteBuffer.wrap(value));
     }
 
     @Override
-    public void put(String key, byte[] value, int length) throws CacheException {
+    public void put(String key, ByteBuffer buffer) throws CacheException {
         if (offHeapDisabled) {
             return;
         }
+
+        int length = buffer.limit();
         if (length > maxEntrySizeBytes) {
             increment("cache.offheap.entry.size.exceed");
             return;
@@ -134,8 +136,10 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
 
         long start = System.currentTimeMillis();
         int normalizedSizeBytes = normalizedSize(length);
+
         ByteBuf buf = allocateBuffer(normalizedSizeBytes);
-        buf.writeBytes(value, 0, length);
+        buf.writeBytes(buffer);
+        buffer.flip();
 
         offHeapEntries.put(key, new HeapEntry(length, buf));
 
@@ -165,12 +169,14 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
             }
 
             buffer = byteBufferCache.get(heapEntry.sizeBytes);
-            heapEntry.buffer.getBytes(0, buffer.array(), 0, heapEntry.sizeBytes);
-            buffer.position(heapEntry.sizeBytes);
+            buffer.limit(heapEntry.sizeBytes);
+
+            heapEntry.buffer.getBytes(0, buffer);
         } finally {
             readLock.unlock();
         }
         reportMetrics("cache.offheap.get", null, start);
+        buffer.flip();
 
         return buffer;
     }

@@ -4,8 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel.MapMode;
+import java.nio.channels.FileChannel;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,8 +35,6 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
     private ByteBufferCache bbc;
 
     /** Threshold beyond which memory mapping will be used for reading from and writing to files */
-    @Value("${memoryMapThreshold}")
-    private int memoryMapThreshold;
     @Value("${diskRoot}")
     private String root;
 
@@ -74,17 +71,14 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
         }
 
         try {
-            int size = (int) Files.size(path);
-            ByteBuffer buffer = bbc.get(size);
-
             try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
-                if (size > memoryMapThreshold) {
-                    MappedByteBuffer mappedBuffer = raf.getChannel().map(MapMode.READ_ONLY, 0, size);
-                    mappedBuffer.get(buffer.array(), 0, size);
-                } else {
-                    raf.readFully(buffer.array(), 0, size);
-                }
-                buffer.position(size);
+                FileChannel fileChannel = raf.getChannel();
+                int size = (int) fileChannel.size();
+
+                ByteBuffer buffer = bbc.get(size);
+                fileChannel.read(buffer);
+                buffer.flip();
+
                 reportMetrics("cache.diskstore.get", null, start);
 
                 return buffer;
@@ -116,12 +110,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
-            if (value.length > memoryMapThreshold) {
-                raf.getChannel().map(MapMode.READ_WRITE, 0, value.length).put(value);
-            } else {
-                raf.setLength(value.length);
-                raf.write(value);
-            }
+            raf.getChannel().write(ByteBuffer.wrap(value));
             reportMetrics("cache.diskstore.put", null, start);
         }
         catch (IOException e) {

@@ -11,7 +11,7 @@ import com.onshape.cache.OffHeap;
 import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
 
-@Service("cache")
+@Service
 public class CacheImpl implements Cache {
     @Autowired
     private OnHeap onHeap;
@@ -24,7 +24,7 @@ public class CacheImpl implements Cache {
     public void put(String key, byte[] value) throws CacheException {
         onHeap.put(key);
         if (offHeap.accepts(value.length)) {
-            offHeap.putAsync(key, value, value.length);
+            offHeap.putAsync(key, value);
         }
         diskStore.putAsync(key, value);
     }
@@ -33,13 +33,15 @@ public class CacheImpl implements Cache {
     public ByteBuffer get(String key) throws CacheException {
         // ByteBuffer is thread local. So all of these calls have to be synchronous
         ByteBuffer buffer = offHeap.get(key);
-        if (buffer != null) {
-            return buffer;
+        if (buffer == null) {
+            buffer = diskStore.get(key);
+            if (buffer != null) {
+                offHeap.put(key, buffer);
+            }
         }
 
-        buffer = diskStore.get(key);
-        if (buffer != null) {
-            offHeap.put(key, buffer.array(), buffer.position());
+        if (buffer != null && !onHeap.contains(key)) {
+            onHeap.put(key);
         }
 
         return buffer;

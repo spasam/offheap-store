@@ -2,13 +2,14 @@ package com.onshape.cache.controller;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
 
 import javax.servlet.http.HttpServletResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -29,7 +30,6 @@ public class CacheController extends AbstractMetricsProvider {
     private static final Logger LOG = LoggerFactory.getLogger(CacheController.class);
     private static final String OCTET_STREAM = "application/octet-stream";
 
-    @Qualifier("cache")
     @Autowired
     private Cache cache;
 
@@ -67,18 +67,20 @@ public class CacheController extends AbstractMetricsProvider {
 
         response.setStatus(HttpStatus.OK.value());
         response.setContentType(OCTET_STREAM);
-        response.setContentLength(buffer.position());
-        response.getOutputStream().write(buffer.array(), 0, buffer.position());
+        response.setContentLength(buffer.limit());
+
+        WritableByteChannel channel = Channels.newChannel(response.getOutputStream());
+        channel.write(buffer);
 
         int took = reportMetrics("cache.get", c, start);
-        increment("cache.get.total.size.", c, buffer.position());
+        increment("cache.get.total.size.", c, buffer.limit());
         increment("cache.get.total.time.", c, took);
     }
 
     @RequestMapping(path = "{c}/{k}",
             method = RequestMethod.HEAD)
     @ResponseStatus(value = HttpStatus.FOUND)
-    public void exists(@PathVariable("c") String c, @PathVariable("k") String k) throws CacheException {
+    public void contains(@PathVariable("c") String c, @PathVariable("k") String k) throws CacheException {
         LOG.info("Head: {}/{}", c, k);
         if (!cache.contains(c + k)) {
             increment("cache.head.miss", c, 1);

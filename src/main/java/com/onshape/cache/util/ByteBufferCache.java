@@ -13,14 +13,18 @@ public class ByteBufferCache extends ThreadLocal<ByteBuffer> {
 
     @Override
     protected ByteBuffer initialValue() {
-        return ByteBuffer.allocate(cachedBufferSize);
+        return ByteBuffer.allocateDirect(cachedBufferSize);
     }
 
     public ByteBuffer get(int capacity) {
+        ByteBuffer buf;
         if (capacity < cachedBufferSize) {
-            return get();
+            buf = get();
+        } else {
+            buf = ByteBuffer.allocate(capacity);
         }
 
-        return ByteBuffer.allocate(capacity);
+        buf.clear();
+        return buf;
     }
 }
