@@ -268,6 +268,6 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
     }
 
     private static int normalizedSize(int sizeBytes) {
-        return (int) Math.ceil(sizeBytes / NORMAL_CACHE_SIZE) * NORMAL_CACHE_SIZE;
+        return (int) Math.ceil((double) sizeBytes / NORMAL_CACHE_SIZE) * NORMAL_CACHE_SIZE;
     }
 }
