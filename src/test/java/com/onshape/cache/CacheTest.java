@@ -1,4 +1,4 @@
-package com.onshape.cache.impl;
+package com.onshape.cache;
 
 import java.nio.ByteBuffer;
 import java.util.Random;
@@ -20,7 +20,7 @@ import com.onshape.cache.exception.CacheException;
 
 @RunWith(SpringJUnit4ClassRunner.class)
 @SpringApplicationConfiguration(CacheService.class)
-public class CacheImplTest {
+public class CacheTest {
     private static final Random RANDOM = new Random(System.currentTimeMillis());
 
     @Autowired
