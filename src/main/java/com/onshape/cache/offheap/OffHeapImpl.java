@@ -29,7 +29,7 @@ import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalNotification;
 import com.onshape.cache.OffHeap;
 import com.onshape.cache.exception.CacheException;
-import com.onshape.cache.metrics.AbstractMetricsProvider;
+import com.onshape.cache.metrics.MetricService;
 import com.onshape.cache.util.ByteBufferCache;
 
 import io.netty.buffer.ByteBuf;
@@ -37,7 +37,7 @@ import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 
 @Service
-public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, InitializingBean, HealthIndicator {
+public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OffHeapImpl.class);
     private static final int DIRECT_ARENA_COUNT = 16;
     private static final int PAGE_SIZE = 8 * 1024;
@@ -60,6 +60,8 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
 
     @Autowired
     private ByteBufferCache byteBufferCache;
+    @Autowired
+    private MetricService ms;
 
     @Value("${offHeapDisabled}")
     private boolean offHeapDisabled;
@@ -130,7 +132,7 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
 
         int length = buffer.limit();
         if (length > maxEntrySizeBytes) {
-            increment("cache.offheap.entry.size.exceed");
+            ms.increment("offheap.entry.size.exceed");
             return;
         }
 
@@ -144,10 +146,10 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
         offHeapEntries.put(key, new HeapEntry(length, buf));
 
         allocatedOffHeapSize.addAndGet(normalizedSizeBytes);
-        increment("cache.offheap.size", normalizedSizeBytes);
-        increment("cache.offheap.wasted", (normalizedSizeBytes - length));
-        increment("cache.offheap.count");
-        reportMetrics("cache.offheap.put", null, start);
+        ms.increment("offheap.size", normalizedSizeBytes);
+        ms.increment("offheap.wasted", (normalizedSizeBytes - length));
+        ms.increment("offheap.count");
+        ms.reportMetrics("offheap.put", start);
     }
 
     @Override
@@ -164,7 +166,7 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
         try {
             HeapEntry heapEntry = offHeapEntries.getIfPresent(key);
             if (heapEntry == null) {
-                increment("cache.offheap.get.miss");
+                ms.increment("offheap.get.miss");
                 return null;
             }
 
@@ -175,8 +177,9 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
         } finally {
             readLock.unlock();
         }
-        reportMetrics("cache.offheap.get", null, start);
+
         buffer.flip();
+        ms.reportMetrics("offheap.get", start);
 
         return buffer;
     }
@@ -198,7 +201,7 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
             writeLock.unlock();
         }
 
-        reportMetrics("cache.offheap.delete", null, start);
+        ms.reportMetrics("offheap.delete", start);
     }
 
     @Override
@@ -239,13 +242,13 @@ public class OffHeapImpl extends AbstractMetricsProvider implements OffHeap, Ini
                 }
 
                 allocatedOffHeapSize.addAndGet(-1 * heapEntry.normalizedSizeBytes);
-                decrement("cache.offheap.size", heapEntry.normalizedSizeBytes);
-                decrement("cache.offheap.wasted", (heapEntry.normalizedSizeBytes - heapEntry.sizeBytes));
-                decrement("cache.offheap.count");
+                ms.decrement("offheap.size", heapEntry.normalizedSizeBytes);
+                ms.decrement("offheap.wasted", (heapEntry.normalizedSizeBytes - heapEntry.sizeBytes));
+                ms.decrement("offheap.count");
 
                 if (cause == RemovalCause.SIZE) {
                     LOG.info("Evicted from offheap: {}", notification.getKey());
-                    increment("cache.offheap.evicted");
+                    ms.increment("offheap.evicted");
                 }
             }
 

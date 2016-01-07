@@ -42,6 +42,13 @@
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
+    <!-- Statsd -->
+    <dependency>
+      <groupId>com.timgroup</groupId>
+      <artifactId>java-statsd-client</artifactId>
+      <version>3.1.0</version>
+    </dependency>
+
     <!-- Test dependencies -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

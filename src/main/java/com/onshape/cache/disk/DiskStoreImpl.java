@@ -24,15 +24,17 @@ import org.springframework.stereotype.Service;
 
 import com.onshape.cache.DiskStore;
 import com.onshape.cache.exception.CacheException;
-import com.onshape.cache.metrics.AbstractMetricsProvider;
+import com.onshape.cache.metrics.MetricService;
 import com.onshape.cache.util.ByteBufferCache;
 
 @Service
-public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore, InitializingBean, HealthIndicator {
+public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(DiskStoreImpl.class);
 
     @Autowired
     private ByteBufferCache bbc;
+    @Autowired
+    private MetricService ms;
 
     /** Threshold beyond which memory mapping will be used for reading from and writing to files */
     @Value("${diskRoot}")
@@ -57,7 +59,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
         try {
             return Files.exists(Paths.get(root, key));
         } finally {
-            reportMetrics("cache.diskstore.head", null, start);
+            ms.reportMetrics("disk.head", start);
         }
     }
 
@@ -66,7 +68,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         if (Files.notExists(path)) {
-            increment("cache.diskstore.get.miss");
+            ms.increment("disk.get.miss");
             return null;
         }
 
@@ -79,8 +81,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
                 fileChannel.read(buffer);
                 buffer.flip();
 
-                reportMetrics("cache.diskstore.get", null, start);
-
+                ms.reportMetrics("disk.get", start);
                 return buffer;
             }
         }
@@ -96,7 +97,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
         long start = System.currentTimeMillis();
         try {
             Files.deleteIfExists(Paths.get(root, key));
-            reportMetrics("cache.diskstore.delete", null, start);
+            ms.reportMetrics("disk.delete", start);
         }
         catch (IOException e) {
             LOG.error("Error deleting file for entry: {}", key, e);
@@ -111,7 +112,7 @@ public class DiskStoreImpl extends AbstractMetricsProvider implements DiskStore,
         Path path = Paths.get(root, key);
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
             raf.getChannel().write(ByteBuffer.wrap(value));
-            reportMetrics("cache.diskstore.put", null, start);
+            ms.reportMetrics("disk.put", start);
         }
         catch (IOException e) {
             LOG.error("Failed to persist entry to disk: {}", key, e);

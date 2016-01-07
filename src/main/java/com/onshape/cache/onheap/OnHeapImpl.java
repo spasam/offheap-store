@@ -8,6 +8,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
@@ -15,14 +16,17 @@ import org.springframework.stereotype.Service;
 
 import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
-import com.onshape.cache.metrics.AbstractMetricsProvider;
+import com.onshape.cache.metrics.MetricService;
 
 @Service
-public class OnHeapImpl extends AbstractMetricsProvider implements OnHeap, InitializingBean, HealthIndicator {
+public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OnHeapImpl.class);
 
     @Value("${maxCacheEntries}")
     private int maxCacheEntries;
+
+    @Autowired
+    private MetricService ms;
 
     private Set<String> keys;
 
@@ -38,7 +42,7 @@ public class OnHeapImpl extends AbstractMetricsProvider implements OnHeap, Initi
     @Override
     public synchronized void put(String key) {
         if (!keys.remove(key)) {
-            increment("cache.onheap.count");
+            ms.increment("onheap.count");
         }
         keys.add(key);
     }
@@ -51,7 +55,7 @@ public class OnHeapImpl extends AbstractMetricsProvider implements OnHeap, Initi
     @Override
     public synchronized boolean remove(String key) throws CacheException {
         if (keys.remove(key)) {
-            decrement("cache.onheap.count");
+            ms.decrement("onheap.count");
             return true;
         }
 
