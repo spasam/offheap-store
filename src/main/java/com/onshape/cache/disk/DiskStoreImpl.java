@@ -111,6 +111,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
+            raf.setLength(0);
             raf.getChannel().write(ByteBuffer.wrap(value));
             ms.reportMetrics("disk.put", start);
         }

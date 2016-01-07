@@ -12,10 +12,6 @@ import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 import org.springframework.util.Base64Utils;
 
 import com.onshape.CacheService;
-import com.onshape.cache.Cache;
-import com.onshape.cache.DiskStore;
-import com.onshape.cache.OffHeap;
-import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
 
 @RunWith(SpringJUnit4ClassRunner.class)
@@ -113,6 +109,76 @@ public class CacheTest {
         Thread.sleep(2000L);
         Assert.assertFalse("Key found: " + key, cache.contains(key));
         checkBadKey(key);
+    }
+
+    @Test
+    public void replaceOnDisk() throws Exception {
+        int size = 4 * 1024;
+        String key = getRandomKey();
+        byte[] value = getRandomBytes(size);
+
+        // Put is async for most part. So wait before checking
+        cache.put(key, value);
+        Thread.sleep(500L);
+
+        // Remove from offheap
+        offHeap.removeAsync(key);
+        Thread.sleep(1000L);
+
+        // Put a new value (smaller)
+        size = 1024;
+        value = getRandomBytes(size);
+        cache.put(key, value);
+        Thread.sleep(1000L);
+
+        // Remove the new value from offheap
+        offHeap.removeAsync(key);
+        Thread.sleep(1000L);
+
+        // Make sure we get the new value
+        checkGet(key, value, size);
+
+        // Put a new value (larger)
+        size = 8 * 1024;
+        value = getRandomBytes(size);
+        cache.put(key, value);
+        Thread.sleep(1000L);
+
+        // Remove the new value from offheap
+        offHeap.removeAsync(key);
+        Thread.sleep(1000L);
+
+        // Make sure we get the new value
+        checkGet(key, value, size);
+    }
+
+    @Test
+    public void replaceOffHeap() throws Exception {
+        int size = 4 * 1024;
+        String key = getRandomKey();
+        byte[] value = getRandomBytes(size);
+
+        // Put is async for most part. So wait before checking
+        cache.put(key, value);
+        Thread.sleep(500L);
+
+        // Put a new value (smaller)
+        size = 1024;
+        value = getRandomBytes(size);
+        cache.put(key, value);
+        Thread.sleep(1000L);
+
+        // Make sure we get the new value
+        checkGet(key, value, size);
+
+        // Put a new value (larger)
+        size = 8 * 1024;
+        value = getRandomBytes(size);
+        cache.put(key, value);
+        Thread.sleep(1000L);
+
+        // Make sure we get the new value
+        checkGet(key, value, size);
     }
 
     private void checkBadKey(String key) throws CacheException {
