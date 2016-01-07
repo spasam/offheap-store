@@ -15,7 +15,6 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Service;
 
 import com.onshape.cache.OnHeap;
-import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.metrics.MetricService;
 
 @Service
@@ -48,12 +47,12 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     }
 
     @Override
-    public synchronized boolean contains(String key) throws CacheException {
+    public synchronized boolean contains(String key) {
         return keys.contains(key);
     }
 
     @Override
-    public synchronized boolean remove(String key) throws CacheException {
+    public synchronized boolean remove(String key) {
         if (keys.remove(key)) {
             ms.decrement("onheap.count");
             return true;

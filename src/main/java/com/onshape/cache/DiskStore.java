@@ -1,21 +1,18 @@
 package com.onshape.cache;
 
 import java.nio.ByteBuffer;
-
-import javax.validation.constraints.NotNull;
-import javax.validation.constraints.Size;
-
-import org.springframework.validation.annotation.Validated;
+import java.util.function.Function;
 
 import com.onshape.cache.exception.CacheException;
 
-@Validated
 public interface DiskStore {
-    void putAsync(@NotNull @Size(min = 1) String key, @NotNull @Size(min = 1) byte[] value) throws CacheException;
+    void putAsync(String key, byte[] value) throws CacheException;
 
-    ByteBuffer get(@NotNull @Size(min = 1) String key) throws CacheException;
+    ByteBuffer get(String key) throws CacheException;
 
-    boolean contains(@NotNull @Size(min = 1) String key) throws CacheException;
+    boolean contains(String key) throws CacheException;
 
-    void removeAsync(@NotNull @Size(min = 1) String key) throws CacheException;
+    void removeAsync(String key) throws CacheException;
+
+    void removeHierarchy(String prefix, Function<String, Void> function) throws CacheException;
 }

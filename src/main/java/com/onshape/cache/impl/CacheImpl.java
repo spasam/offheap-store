@@ -1,7 +1,10 @@
 package com.onshape.cache.impl;
 
 import java.nio.ByteBuffer;
+import java.util.function.Function;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +16,8 @@ import com.onshape.cache.exception.CacheException;
 
 @Service
 public class CacheImpl implements Cache {
+    private static final Logger LOG = LoggerFactory.getLogger(CacheImpl.class);
+
     @Autowired
     private OnHeap onHeap;
     @Autowired
@@ -70,5 +75,19 @@ public class CacheImpl implements Cache {
         }
 
         return true;
+    }
+
+    @Override
+    public void removeHierarchy(final String prefix) throws CacheException {
+        diskStore.removeHierarchy(prefix, new Function<String, Void>() {
+            @Override
+            public Void apply(String suffix) {
+                String key = prefix + "/" + suffix;
+                LOG.info("Delete entry: {}", key);
+                onHeap.remove(key);
+                offHeap.removeAsync(key);
+                return null;
+            }
+        });
     }
 }

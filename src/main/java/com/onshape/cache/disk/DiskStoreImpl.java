@@ -1,6 +1,5 @@
 package com.onshape.cache.disk;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -11,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
+import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,11 +44,11 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     public void afterPropertiesSet() throws IOException {
         LOG.info("Disk store root: {}", root);
 
-        File dir = new File(root);
-        if (!dir.exists()) {
-            Files.createDirectories(dir.toPath());
+        Path dir = Paths.get(root);
+        if (Files.notExists(dir)) {
+            Files.createDirectories(dir);
         }
-        if (!dir.isDirectory()) {
+        if (!Files.isDirectory(dir)) {
             throw new IOException("Not a directory: " + dir);
         }
     }
@@ -100,7 +100,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             ms.reportMetrics("disk.delete", start);
         }
         catch (IOException e) {
-            LOG.error("Error deleting file for entry: {}", key, e);
             throw new CacheException(e);
         }
     }
@@ -110,19 +109,51 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     public void putAsync(String key, byte[] value) throws CacheException {
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
+        Path parent = path.getParent();
+        if (Files.notExists(path.getParent())) {
+            try {
+                Files.createDirectories(parent);
+            }
+            catch (IOException e) {
+                throw new CacheException(e);
+            }
+        }
+
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
             raf.setLength(0);
             raf.getChannel().write(ByteBuffer.wrap(value));
             ms.reportMetrics("disk.put", start);
         }
         catch (IOException e) {
-            LOG.error("Failed to persist entry to disk: {}", key, e);
             try {
                 Files.deleteIfExists(path);
             }
             catch (IOException ioe) {
                 LOG.warn("Error deleting file for entry: {}", key, ioe);
             }
+            throw new CacheException(e);
+        }
+    }
+
+    @Override
+    public void removeHierarchy(String prefix, Function<String, Void> function) throws CacheException {
+        Path path = Paths.get(root, prefix);
+        if (Files.notExists(path)) {
+            throw new CacheException("Not found: " + prefix);
+        }
+        if (!Files.isDirectory(path)) {
+            throw new CacheException("Invalid entry: " + prefix);
+        }
+
+        removeHierarchyAsync(path, function);
+    }
+
+    @Async
+    private void removeHierarchyAsync(Path path, Function<String, Void> function) throws CacheException {
+        try {
+            Files.list(path).forEach((Path p) -> function.apply(p.toFile().getName()));
+        }
+        catch (IOException e) {
             throw new CacheException(e);
         }
     }

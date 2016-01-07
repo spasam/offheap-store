@@ -197,7 +197,7 @@ public class CacheTest {
     }
 
     private static String getRandomKey() {
-        return Base64Utils.encodeToUrlSafeString(getRandomBytes(32));
+        return "a/1/x/" + Base64Utils.encodeToUrlSafeString(getRandomBytes(32));
     }
 
     private static byte[] getRandomBytes(int size) {

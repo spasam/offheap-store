@@ -28,7 +28,6 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalNotification;
 import com.onshape.cache.OffHeap;
-import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.metrics.MetricService;
 import com.onshape.cache.util.ByteBufferCache;
 
@@ -120,12 +119,12 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
     @Async
     @Override
-    public void putAsync(String key, byte[] value) throws CacheException {
+    public void putAsync(String key, byte[] value) {
         put(key, ByteBuffer.wrap(value));
     }
 
     @Override
-    public void put(String key, ByteBuffer buffer) throws CacheException {
+    public void put(String key, ByteBuffer buffer) {
         if (offHeapDisabled) {
             return;
         }
@@ -153,7 +152,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     }
 
     @Override
-    public ByteBuffer get(String key) throws CacheException {
+    public ByteBuffer get(String key) {
         if (offHeapDisabled) {
             return null;
         }
