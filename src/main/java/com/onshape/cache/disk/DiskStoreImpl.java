@@ -8,8 +8,14 @@ import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
@@ -30,6 +36,8 @@ import com.onshape.cache.util.ByteBufferCache;
 @Service
 public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(DiskStoreImpl.class);
+    private static final String EXPIRE_ATTR = "e";
+    private static final String LOST_FOUND = "lost+found";
 
     @Autowired
     private ByteBufferCache bbc;
@@ -39,10 +47,15 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     /** Threshold beyond which memory mapping will be used for reading from and writing to files */
     @Value("${diskRoot}")
     private String root;
+    @Value("${diskScavengerIntervalSecs}")
+    private int diskScavengerIntervalSecs;
+
+    private boolean expirationSupported;
 
     @Override
     public void afterPropertiesSet() throws IOException {
         LOG.info("Disk store root: {}", root);
+        LOG.info("Disk scavenger interval secs: {}", diskScavengerIntervalSecs);
 
         Path dir = Paths.get(root);
         if (Files.notExists(dir)) {
@@ -50,6 +63,13 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         }
         if (!Files.isDirectory(dir)) {
             throw new IOException("Not a directory: " + dir);
+        }
+
+        FileStore fs = Files.getFileStore(dir.toRealPath());
+        if (!fs.supportsFileAttributeView(UserDefinedFileAttributeView.class)) {
+            expirationSupported = true;
+        } else {
+            LOG.error("File store '{}' does not support user file attributes. Expiration support is disabled", fs);
         }
     }
 
@@ -106,7 +126,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     @Async
     @Override
-    public void putAsync(String key, byte[] value) throws CacheException {
+    public void putAsync(String key, byte[] value, int expireSecs) throws CacheException {
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         Path parent = path.getParent();
@@ -122,7 +142,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
             raf.setLength(0);
             raf.getChannel().write(ByteBuffer.wrap(value));
-            ms.reportMetrics("disk.put", start);
         }
         catch (IOException e) {
             try {
@@ -133,10 +152,25 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             }
             throw new CacheException(e);
         }
+
+        ms.reportMetrics("disk.put", start);
+
+        if (expirationSupported) {
+            try {
+                ByteBuffer buffer = ByteBuffer.allocate(4);
+                buffer.putInt((int) (System.currentTimeMillis() / 1000L) + expireSecs);
+                buffer.flip();
+
+                Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).write(EXPIRE_ATTR, buffer);
+            }
+            catch (IOException e) {
+                throw new CacheException(e);
+            }
+        }
     }
 
     @Override
-    public void removeHierarchy(String prefix, Function<String, Void> function) throws CacheException {
+    public void checkHierarchy(String prefix) throws CacheException {
         Path path = Paths.get(root, prefix);
         if (Files.notExists(path)) {
             throw new CacheException("Not found: " + prefix);
@@ -144,18 +178,119 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         if (!Files.isDirectory(path)) {
             throw new CacheException("Invalid entry: " + prefix);
         }
-
-        removeHierarchyAsync(path, function);
     }
 
     @Async
-    private void removeHierarchyAsync(Path path, Function<String, Void> function) throws CacheException {
+    @Override
+    public void removeHierarchyAsync(String prefix, Function<String, Void> deleteFunction) throws CacheException {
+        Path path = Paths.get(root, prefix);
         try {
-            Files.list(path).forEach((Path p) -> function.apply(p.toFile().getName()));
+            Files.list(path).forEach((Path p) -> deleteFunction.apply(getKey(p)));
         }
         catch (IOException e) {
             throw new CacheException(e);
         }
+    }
+
+    @Async
+    @Override
+    public void startScavengerAsync(Function<String, Void> deleteFunction) {
+        if (!expirationSupported) {
+            return;
+        }
+
+        while (true) {
+            List<String> cacheNames = getCacheNames();
+            if (cacheNames.size() > 0) {
+                ExecutorService es = Executors.newFixedThreadPool(cacheNames.size(),
+                        (Runnable r) -> new Thread(r, "ds-"));
+                try {
+                    int now = (int) (System.currentTimeMillis() / 1000L);
+                    for (String cacheName : cacheNames) {
+                        es.submit(() -> scavengeCache(cacheName, now, deleteFunction));
+                    }
+
+                    Thread.sleep(5000L);
+                }
+                catch (InterruptedException e) {
+                    LOG.error("Interrupted after launching cache scavengers", e);
+                } finally {
+                    es.shutdown();
+                }
+            }
+
+            try {
+                Thread.sleep(diskScavengerIntervalSecs * 1000L);
+            }
+            catch (InterruptedException e) {
+                LOG.warn("Scavenger interrupted while sleeping", e);
+            }
+        }
+    }
+
+    private void scavengeCache(String cacheName, int now, Function<String, Void> deleteFunction) {
+        LOG.info("Finding expired entries in: {}", cacheName);
+        try {
+            Files.walk(Paths.get(root, cacheName))
+                .filter((Path p) -> isExpired(p, now))
+                .forEach((Path p) -> removeExpired(getKey(p), deleteFunction));
+        }
+        catch (IOException e) {
+            LOG.error("Error walking cache entries in: {}", cacheName, e);
+        }
+    }
+
+    private List<String> getCacheNames() {
+        List<String> caches = new ArrayList<>();
+        try {
+            Files.list(Paths.get(root))
+                .filter((Path p) -> !LOST_FOUND.equals(p.getFileName().toString()))
+                .forEach((Path p) -> caches.add(p.getFileName().toString()));
+        }
+        catch (IOException e) {
+            LOG.error("Error finding all cache names", e);
+        }
+
+        Collections.shuffle(caches);
+        return caches;
+    }
+
+    private boolean isExpired(Path path, int now) {
+        try {
+            if (!Files.isDirectory(path)) {
+                ByteBuffer buffer = ByteBuffer.allocate(4);
+                Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).read(EXPIRE_ATTR, buffer);
+                buffer.flip();
+
+                boolean expired = buffer.hasRemaining() && buffer.getInt() < now;
+                return expired;
+            }
+        }
+        catch (IOException e) {
+            // Does not have expire attribute. Keep the entry
+        }
+
+        return false;
+    }
+
+    private void removeExpired(String key, Function<String, Void> deleteFunction) {
+        try {
+            Files.deleteIfExists(Paths.get(root, key));
+        }
+        catch (IOException e) {
+            LOG.error("Error delete expired disk entry: {}", key, e);
+        }
+
+        deleteFunction.apply(key);
+        ms.increment("delete.expired");
+    }
+
+    private String getKey(Path path) {
+        int count = path.getNameCount();
+        return path.getName(count - 4)
+                + "/" + path.getName(count - 3)
+                + "/" + path.getName(count - 2)
+                + "/" + path.getName(count - 1);
     }
 
     @Override

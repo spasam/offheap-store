@@ -5,6 +5,7 @@ import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -15,7 +16,7 @@ import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
 
 @Service
-public class CacheImpl implements Cache {
+public class CacheImpl implements Cache, InitializingBean {
     private static final Logger LOG = LoggerFactory.getLogger(CacheImpl.class);
 
     @Autowired
@@ -26,12 +27,25 @@ public class CacheImpl implements Cache {
     private DiskStore diskStore;
 
     @Override
-    public void put(String key, byte[] value) throws CacheException {
+    public void afterPropertiesSet() throws Exception {
+        diskStore.startScavengerAsync(new Function<String, Void>() {
+            @Override
+            public Void apply(String key) {
+                LOG.info("Delete expired entry: {}", key);
+                onHeap.remove(key);
+                offHeap.removeAsync(key);
+                return null;
+            }
+        });
+    }
+
+    @Override
+    public void put(String key, byte[] value, int expireSecs) throws CacheException {
         onHeap.put(key);
         if (offHeap.accepts(value.length)) {
             offHeap.putAsync(key, value);
         }
-        diskStore.putAsync(key, value);
+        diskStore.putAsync(key, value, expireSecs);
     }
 
     @Override
@@ -78,11 +92,11 @@ public class CacheImpl implements Cache {
     }
 
     @Override
-    public void removeHierarchy(final String prefix) throws CacheException {
-        diskStore.removeHierarchy(prefix, new Function<String, Void>() {
+    public void removeHierarchy(String prefix) throws CacheException {
+        diskStore.checkHierarchy(prefix);
+        diskStore.removeHierarchyAsync(prefix, new Function<String, Void>() {
             @Override
-            public Void apply(String suffix) {
-                String key = prefix + "/" + suffix;
+            public Void apply(String key) {
                 LOG.info("Delete entry: {}", key);
                 onHeap.remove(key);
                 offHeap.removeAsync(key);

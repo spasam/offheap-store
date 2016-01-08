@@ -6,6 +6,7 @@ import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
 
 import javax.servlet.http.HttpServletResponse;
+import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 
@@ -37,6 +38,7 @@ public class CacheController {
     private static final String OCTET_STREAM = "application/octet-stream";
     private static final String VERSION_HEADER = "X-Version";
     private static final String CONTEXT_HEADER = "X-Context";
+    private static final String EXPIRES_HEADER = "X-Expires";
 
     @Autowired
     private Cache cache;
@@ -51,6 +53,7 @@ public class CacheController {
             @NotNull @Size(min = 1) @RequestHeader(VERSION_HEADER) String v,
             @NotNull @Size(min = 1) @RequestHeader(CONTEXT_HEADER) String x,
             @NotNull @Size(min = 1) @PathVariable("k") String k,
+            @Min(0) @RequestHeader(EXPIRES_HEADER) int expireSecs,
             @NotNull @Size(min = 1) HttpEntity<byte[]> value)
                     throws CacheException {
         long start = System.currentTimeMillis();
@@ -59,7 +62,7 @@ public class CacheController {
         LOG.info("Put: {}/{}/{}/{}: {} bytes", c, v, x, k, size);
 
         String key = c + "/" + v + "/" + x + "/" + k;
-        cache.put(key, bytes);
+        cache.put(key, bytes, expireSecs);
 
         int took = ms.reportMetrics("put", c, start);
         ms.gauge("put.size." + c, size);
