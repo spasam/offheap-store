@@ -5,6 +5,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
 
+import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletResponse;
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
@@ -95,8 +96,12 @@ public class CacheController {
         response.setContentType(OCTET_STREAM);
         response.setContentLength(buffer.limit());
 
-        WritableByteChannel channel = Channels.newChannel(response.getOutputStream());
-        channel.write(buffer);
+        ServletOutputStream os = response.getOutputStream();
+        WritableByteChannel channel = Channels.newChannel(os);
+        while (buffer.remaining() > 0) {
+            channel.write(buffer);
+        }
+        os.flush();
 
         int took = ms.reportMetrics("get", c, start);
         ms.gauge("get.size." + c, buffer.limit());

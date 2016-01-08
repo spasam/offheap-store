@@ -55,6 +55,44 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
             this.normalizedSizeBytes = normalizedSize(sizeBytes);
             this.buffer = buffer;
         }
+
+        @Override
+        public int hashCode() {
+            int addr = buffer.hasMemoryAddress() ? (int) (buffer.memoryAddress() % Integer.MAX_VALUE) : 0;
+            int result = 31 + addr;
+            result = 31 * result + normalizedSizeBytes;
+            result = 31 * result + sizeBytes;
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null) {
+                return false;
+            }
+            if (getClass() != obj.getClass()) {
+                return false;
+            }
+
+            HeapEntry other = (HeapEntry) obj;
+            if (buffer == null) {
+                if (other.buffer != null) {
+                    return false;
+                }
+            } else if (buffer != other.buffer) {
+                return false;
+            }
+            if (normalizedSizeBytes != other.normalizedSizeBytes) {
+                return false;
+            }
+            if (sizeBytes != other.sizeBytes) {
+                return false;
+            }
+            return true;
+        }
     }
 
     @Autowired
@@ -89,8 +127,9 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         int maxOffHeapEntries = (int) (maxOffHeapSizeBytes / NORMAL_CACHE_SIZE);
         maxEntrySizeBytes = PAGE_SIZE << MAX_ORDER;
 
+        LOG.info("Offheap block size bytes: {}", NORMAL_CACHE_SIZE);
         LOG.info("Max offheap size bytes: {}", maxOffHeapSizeBytes);
-        LOG.info("Max entry size bytes: {}", maxEntrySizeBytes);
+        LOG.info("Max offheap entry size bytes: {}", maxEntrySizeBytes);
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);
         LOG.info("Concurrent locks: {}", concurrentLocks);
 
@@ -120,11 +159,11 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     @Async
     @Override
     public void putAsync(String key, byte[] value) {
-        put(key, ByteBuffer.wrap(value));
+        put(key, ByteBuffer.wrap(value), true);
     }
 
     @Override
-    public void put(String key, ByteBuffer buffer) {
+    public void put(String key, ByteBuffer buffer, boolean replace) {
         if (offHeapDisabled) {
             return;
         }
@@ -135,6 +174,10 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
             return;
         }
 
+        if (!replace && offHeapEntries.getIfPresent(key) != null) {
+            return;
+        }
+
         long start = System.currentTimeMillis();
         int normalizedSizeBytes = normalizedSize(length);
 
@@ -142,6 +185,8 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         buf.writeBytes(buffer);
         buffer.flip();
 
+        // If we are replacing the value, removal notification will be called with old value
+        // Removal notification will take care of cleaning old heap entry
         offHeapEntries.put(key, new HeapEntry(length, buf));
 
         allocatedOffHeapSize.addAndGet(normalizedSizeBytes);
@@ -266,7 +311,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
             return allocator.directBuffer(normalizedSizeBytes, normalizedSizeBytes);
         }
 
-        int count = NORMAL_CACHE_SIZE / normalizedSizeBytes;
+        int count = (int) Math.ceil((double) normalizedSizeBytes / NORMAL_CACHE_SIZE);
         CompositeByteBuf buf = allocator.compositeDirectBuffer(count);
         for (int i = 0; i < count; i++) {
             buf.addComponent(allocator.directBuffer(NORMAL_CACHE_SIZE, NORMAL_CACHE_SIZE));
