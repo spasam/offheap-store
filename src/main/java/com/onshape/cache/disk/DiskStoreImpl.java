@@ -38,6 +38,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     private static final Logger LOG = LoggerFactory.getLogger(DiskStoreImpl.class);
     private static final String EXPIRE_ATTR = "e";
     private static final String LOST_FOUND = "lost+found";
+    private static final String DISK_SCAVENGER_PREFIX = "ds-";
 
     @Autowired
     private ByteBufferCache bbc;
@@ -201,9 +202,11 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
         while (true) {
             List<String> cacheNames = getCacheNames();
+            cacheNames.remove(LOST_FOUND);
+
             if (cacheNames.size() > 0) {
                 ExecutorService es = Executors.newFixedThreadPool(cacheNames.size(),
-                        (Runnable r) -> new Thread(r, "ds-"));
+                        (Runnable r) -> new Thread(r, DISK_SCAVENGER_PREFIX));
                 try {
                     int now = (int) (System.currentTimeMillis() / 1000L);
                     for (String cacheName : cacheNames) {
@@ -228,15 +231,19 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         }
     }
 
-    private void scavengeCache(String cacheName, int now, Function<String, Void> deleteFunction) {
-        LOG.info("Finding expired entries in: {}", cacheName);
+    @Override
+    public Health health() {
         try {
-            Files.walk(Paths.get(root, cacheName))
-                .filter((Path p) -> isExpired(p, now))
-                .forEach((Path p) -> removeExpired(getKey(p), deleteFunction));
+            FileStore fs = Files.getFileStore(Paths.get(root));
+            NumberFormat formatter = new DecimalFormat("#0.00");
+
+            return new Health.Builder().up()
+                .withDetail("% free", formatter.format((((double) fs.getUsableSpace() / fs.getTotalSpace()) * 100)))
+                .build();
         }
         catch (IOException e) {
-            LOG.error("Error walking cache entries in: {}", cacheName, e);
+            LOG.error("Error getting file store information", e);
+            return null;
         }
     }
 
@@ -244,7 +251,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         List<String> caches = new ArrayList<>();
         try {
             Files.list(Paths.get(root))
-                .filter((Path p) -> !LOST_FOUND.equals(p.getFileName().toString()))
                 .forEach((Path p) -> caches.add(p.getFileName().toString()));
         }
         catch (IOException e) {
@@ -255,19 +261,31 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         return caches;
     }
 
-    private boolean isExpired(Path path, int now) {
+    private void scavengeCache(String cacheName, int now, Function<String, Void> deleteFunction) {
+        LOG.info("Finding expired entries in: {}", cacheName);
+        ByteBuffer buffer = ByteBuffer.allocate(4);
+        try {
+            Files.walk(Paths.get(root, cacheName))
+                .filter((Path p) -> isExpired(p, now, buffer))
+                .forEach((Path p) -> removeExpired(getKey(p), deleteFunction));
+        }
+        catch (IOException e) {
+            LOG.error("Error walking cache entries in: {}", cacheName, e);
+        }
+    }
+
+    private boolean isExpired(Path path, int now, ByteBuffer buffer) {
         try {
             if (!Files.isDirectory(path)) {
-                ByteBuffer buffer = ByteBuffer.allocate(4);
+                buffer.clear();
                 Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).read(EXPIRE_ATTR, buffer);
                 buffer.flip();
 
-                boolean expired = buffer.hasRemaining() && buffer.getInt() < now;
-                return expired;
+                return buffer.hasRemaining() && buffer.getInt() < now;
             }
         }
         catch (IOException e) {
-            // Does not have expire attribute. Keep the entry
+            // Does not have expire attribute. Keep the entry. Don't log, will be noisy
         }
 
         return false;
@@ -287,25 +305,13 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     private String getKey(Path path) {
         int count = path.getNameCount();
+        if (count < 4) {
+            return null;
+        }
+
         return path.getName(count - 4)
                 + "/" + path.getName(count - 3)
                 + "/" + path.getName(count - 2)
                 + "/" + path.getName(count - 1);
-    }
-
-    @Override
-    public Health health() {
-        try {
-            FileStore fs = Files.getFileStore(Paths.get(root));
-            NumberFormat formatter = new DecimalFormat("#0.00");
-
-            return new Health.Builder().up()
-                .withDetail("% free", formatter.format((((double) fs.getUsableSpace() / fs.getTotalSpace()) * 100)))
-                .build();
-        }
-        catch (IOException e) {
-            LOG.error("Error getting file store information", e);
-            return null;
-        }
     }
 }

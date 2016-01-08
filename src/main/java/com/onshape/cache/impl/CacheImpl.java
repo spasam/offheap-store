@@ -31,9 +31,11 @@ public class CacheImpl implements Cache, InitializingBean {
         diskStore.startScavengerAsync(new Function<String, Void>() {
             @Override
             public Void apply(String key) {
-                LOG.info("Delete expired entry: {}", key);
-                onHeap.remove(key);
-                offHeap.removeAsync(key);
+                if (key != null) {
+                    LOG.info("Delete expired entry: {}", key);
+                    onHeap.remove(key);
+                    offHeap.removeAsync(key);
+                }
                 return null;
             }
         });
@@ -97,9 +99,11 @@ public class CacheImpl implements Cache, InitializingBean {
         diskStore.removeHierarchyAsync(prefix, new Function<String, Void>() {
             @Override
             public Void apply(String key) {
-                LOG.info("Delete entry: {}", key);
-                onHeap.remove(key);
-                offHeap.removeAsync(key);
+                if (key != null) {
+                    LOG.info("Delete entry: {}", key);
+                    onHeap.remove(key);
+                    offHeap.removeAsync(key);
+                }
                 return null;
             }
         });
