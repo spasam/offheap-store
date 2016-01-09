@@ -60,7 +60,6 @@ public class CacheController {
         long start = System.currentTimeMillis();
         byte[] bytes = value.getBody();
         int size = bytes.length;
-        LOG.info("Put: {}/{}/{}/{}: {} bytes", c, v, x, k, size);
 
         String key = c + "/" + v + "/" + x + "/" + k;
         cache.put(key, bytes, expireSecs);
@@ -82,7 +81,6 @@ public class CacheController {
             @NotNull @Size(min = 1) @PathVariable("k") String k)
                     throws CacheException, IOException {
         long start = System.currentTimeMillis();
-        LOG.info("Get: {}/{}/{}/{}", c, v, x, k);
 
         String key = c + "/" + v + "/" + x + "/" + k;
         ByteBuffer buffer = cache.get(key);
@@ -118,7 +116,6 @@ public class CacheController {
             @NotNull @Size(min = 1) @RequestHeader(CONTEXT_HEADER) String x,
             @NotNull @Size(min = 1) @PathVariable("k") String k)
                     throws CacheException {
-        LOG.info("Head: {}/{}/{}/{}", c, v, x, k);
         String key = c + "/" + v + "/" + x + "/" + k;
         if (!cache.contains(key)) {
             ms.increment("head.miss");
@@ -136,8 +133,6 @@ public class CacheController {
             @NotNull @Size(min = 1) @PathVariable("k") String k)
                     throws CacheException {
         long start = System.currentTimeMillis();
-        LOG.info("Delete: {}/{}/{}/{}", c, v, x, k);
-
         String key = c + "/" + v + "/" + x + "/" + k;
         if (!cache.contains(key)) {
             ms.increment("delete.miss");
@@ -162,5 +157,11 @@ public class CacheController {
         } else {
             cache.removeHierarchy(c + "/" + v + "/" + x);
         }
+    }
+
+    @RequestMapping(method = RequestMethod.DELETE)
+    @ResponseStatus(value = HttpStatus.NO_CONTENT)
+    public void cleanupExpired() {
+        cache.cleanupExpired();
     }
 }

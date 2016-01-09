@@ -32,7 +32,7 @@ public class CacheImpl implements Cache, InitializingBean {
             @Override
             public Void apply(String key) {
                 if (key != null) {
-                    LOG.info("Delete expired entry: {}", key);
+                    LOG.info("Delete entry (expired): {}", key);
                     onHeap.remove(key);
                     offHeap.removeAsync(key);
                 }
@@ -100,12 +100,17 @@ public class CacheImpl implements Cache, InitializingBean {
             @Override
             public Void apply(String key) {
                 if (key != null) {
-                    LOG.info("Delete entry: {}", key);
+                    LOG.info("Delete entry (hierarchy): {}", key);
                     onHeap.remove(key);
                     offHeap.removeAsync(key);
                 }
                 return null;
             }
         });
+    }
+
+    @Override
+    public void cleanupExpired() {
+        diskStore.pokeScavenger();
     }
 }

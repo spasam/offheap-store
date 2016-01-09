@@ -19,4 +19,6 @@ public interface DiskStore {
     void removeHierarchyAsync(String prefix, Function<String, Void> deleteFunction) throws CacheException;
 
     void startScavengerAsync(Function<String, Void> deleteFunction);
+
+    void pokeScavenger();
 }

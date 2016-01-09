@@ -190,6 +190,47 @@ public class CacheTest {
         checkGet(key, value, size);
     }
 
+    @Test
+    public void removeHierarchy() throws Exception {
+        for (String prefix : new String[] { "a/1", "a/1/x" }) {
+            int size = 4 * 1024;
+            String key = getRandomKey();
+            byte[] value = getRandomBytes(size);
+
+            // Put is async for most part. So wait before checking
+            cache.put(key, value, EXPIRES);
+            Thread.sleep(500L);
+
+            // Remove from onheap and offheap and use remove hierarchy
+            Assert.assertTrue(onHeap.remove(key));
+            offHeap.removeAsync(key);
+            cache.removeHierarchy(prefix);
+            Thread.sleep(2000L);
+
+            checkBadKey(key);
+        }
+    }
+
+    @Test
+    public void removeExpired() throws Exception {
+        // Wait for disk scavenger to do the initial run
+        Thread.sleep(2000L);
+
+        int size = 4 * 1024;
+        String key = getRandomKey();
+        byte[] value = getRandomBytes(size);
+
+        // Put is async for most part. So wait before checking
+        cache.put(key, value, 1);
+        Thread.sleep(3000L);
+
+        // Entry should be expired by now. Try running cleanup and check the cache
+        cache.cleanupExpired();
+        Thread.sleep(2000L);
+
+        checkBadKey(key);
+    }
+
     private void checkBadKey(String key) throws CacheException {
         ByteBuffer buffer = cache.get(key);
         Assert.assertNull("Unexpected entry for key: " + key, buffer);

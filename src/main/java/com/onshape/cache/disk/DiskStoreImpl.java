@@ -52,13 +52,16 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     private int diskScavengerIntervalSecs;
 
     private boolean expirationSupported;
+    private Object scavengerLock = new Object();
 
     @Override
     public void afterPropertiesSet() throws IOException {
+        Path dir = Paths.get(root).toRealPath();
+        root = dir.toString();
+
         LOG.info("Disk store root: {}", root);
         LOG.info("Disk scavenger interval secs: {}", diskScavengerIntervalSecs);
 
-        Path dir = Paths.get(root);
         if (Files.notExists(dir)) {
             Files.createDirectories(dir);
         }
@@ -66,7 +69,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             throw new IOException("Not a directory: " + dir);
         }
 
-        FileStore fs = Files.getFileStore(dir.toRealPath());
+        FileStore fs = Files.getFileStore(dir);
         if (!fs.supportsFileAttributeView(UserDefinedFileAttributeView.class)) {
             expirationSupported = true;
         } else {
@@ -186,7 +189,9 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     public void removeHierarchyAsync(String prefix, Function<String, Void> deleteFunction) throws CacheException {
         Path path = Paths.get(root, prefix);
         try {
-            Files.list(path).forEach((Path p) -> deleteFunction.apply(getKey(p)));
+            Files.walk(path)
+                .filter((Path p) -> Files.isRegularFile(p))
+                .forEach((Path p) -> remove(getKey(p), deleteFunction));
         }
         catch (IOException e) {
             throw new CacheException(e);
@@ -204,6 +209,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             List<String> cacheNames = getCacheNames();
             cacheNames.remove(LOST_FOUND);
 
+            LOG.info("Running disk scavenger on caches: {}", cacheNames);
             if (cacheNames.size() > 0) {
                 ExecutorService es = Executors.newFixedThreadPool(cacheNames.size(),
                         (Runnable r) -> new Thread(r, DISK_SCAVENGER_PREFIX));
@@ -222,12 +228,27 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
                 }
             }
 
-            try {
-                Thread.sleep(diskScavengerIntervalSecs * 1000L);
+            synchronized (scavengerLock) {
+                try {
+                    scavengerLock.wait(diskScavengerIntervalSecs * 1000L);
+                }
+                catch (InterruptedException e) {
+                    LOG.info("Scavenger interrupted while sleeping", e);
+                }
             }
-            catch (InterruptedException e) {
-                LOG.warn("Scavenger interrupted while sleeping", e);
-            }
+        }
+    }
+
+    @Override
+    public void pokeScavenger() {
+        if (!expirationSupported) {
+            LOG.error("File system does not support user file attributes. Expiration support is disabled");
+            return;
+        }
+
+        LOG.info("Waking up disk scavenger");
+        synchronized (scavengerLock) {
+            scavengerLock.notifyAll();
         }
     }
 
@@ -251,6 +272,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         List<String> caches = new ArrayList<>();
         try {
             Files.list(Paths.get(root))
+                .filter((Path p) -> Files.isDirectory(p))
                 .forEach((Path p) -> caches.add(p.getFileName().toString()));
         }
         catch (IOException e) {
@@ -267,7 +289,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         try {
             Files.walk(Paths.get(root, cacheName))
                 .filter((Path p) -> isExpired(p, now, buffer))
-                .forEach((Path p) -> removeExpired(getKey(p), deleteFunction));
+                .forEach((Path p) -> remove(getKey(p), deleteFunction));
         }
         catch (IOException e) {
             LOG.error("Error walking cache entries in: {}", cacheName, e);
@@ -291,12 +313,12 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         return false;
     }
 
-    private void removeExpired(String key, Function<String, Void> deleteFunction) {
+    private void remove(String key, Function<String, Void> deleteFunction) {
         try {
             Files.deleteIfExists(Paths.get(root, key));
         }
         catch (IOException e) {
-            LOG.error("Error delete expired disk entry: {}", key, e);
+            LOG.error("Error deleting disk entry: {}", key, e);
         }
 
         deleteFunction.apply(key);

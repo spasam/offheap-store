@@ -14,4 +14,6 @@ public interface Cache {
     void remove(String key) throws CacheException;
 
     void removeHierarchy(String prefix) throws CacheException;
+
+    void cleanupExpired();
 }
