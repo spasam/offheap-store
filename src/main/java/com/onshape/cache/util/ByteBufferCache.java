@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class ByteBufferCache extends ThreadLocal<ByteBuffer> {
-    /** Threshold up to which thread local byte buffers will be used when reading files */
+    /** Threshold up to which thread local direct byte buffers will be used when reading files */
     @Value("${cachedBufferSize}")
     private int cachedBufferSize;
 
@@ -18,7 +18,7 @@ public class ByteBufferCache extends ThreadLocal<ByteBuffer> {
 
     public ByteBuffer get(int capacity) {
         ByteBuffer buf;
-        if (capacity < cachedBufferSize) {
+        if (capacity <= cachedBufferSize) {
             buf = get();
         } else {
             buf = ByteBuffer.allocate(capacity);
