@@ -104,8 +104,8 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     private boolean offHeapDisabled;
     @Value("${maxOffHeapSizeBytes}")
     private long maxOffHeapSizeBytes;
-    @Value("${concurrencyLocks}")
-    private int concurrentLocks;
+    @Value("${server.tomcat.max-threads}")
+    private int concurrencyLevel;
 
     private int maxEntrySizeBytes;
     private AtomicLong allocatedOffHeapSize;
@@ -131,15 +131,15 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         LOG.info("Max offheap size bytes: {}", maxOffHeapSizeBytes);
         LOG.info("Max offheap entry size bytes: {}", maxEntrySizeBytes);
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);
-        LOG.info("Concurrent locks: {}", concurrentLocks);
+        LOG.info("Concurrent locks: {}", concurrencyLevel);
 
         allocatedOffHeapSize = new AtomicLong(0);
         allocator = new PooledByteBufAllocator(true, 0, DIRECT_ARENA_COUNT, PAGE_SIZE, MAX_ORDER,
                 TINY_CACHE_SIZE, SMALL_CACHE_SIZE, NORMAL_CACHE_SIZE);
 
-        readLocks = new Lock[concurrentLocks];
-        writeLocks = new Lock[concurrentLocks];
-        for (int i = 0; i < concurrentLocks; i++) {
+        readLocks = new Lock[concurrencyLevel];
+        writeLocks = new Lock[concurrencyLevel];
+        for (int i = 0; i < concurrencyLevel; i++) {
             ReadWriteLock rwLock = new ReentrantReadWriteLock();
             readLocks[i] = rwLock.readLock();
             writeLocks[i] = rwLock.writeLock();
@@ -205,7 +205,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         long start = System.currentTimeMillis();
         ByteBuffer buffer;
 
-        Lock readLock = readLocks[Math.abs(key.hashCode()) % concurrentLocks];
+        Lock readLock = readLocks[Math.abs(key.hashCode()) % concurrencyLevel];
         readLock.lock();
         try {
             HeapEntry heapEntry = offHeapEntries.getIfPresent(key);
@@ -237,7 +237,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
         long start = System.currentTimeMillis();
 
-        Lock writeLock = writeLocks[Math.abs(key.hashCode()) % concurrentLocks];
+        Lock writeLock = writeLocks[Math.abs(key.hashCode()) % concurrencyLevel];
         writeLock.lock();
         try {
             offHeapEntries.invalidate(key);
@@ -276,7 +276,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                         || cause == RemovalCause.REPLACED); // Entry is being replaced
 
                 HeapEntry heapEntry;
-                Lock writeLock = writeLocks[Math.abs(notification.getKey().hashCode()) % concurrentLocks];
+                Lock writeLock = writeLocks[Math.abs(notification.getKey().hashCode()) % concurrencyLevel];
                 writeLock.lock();
                 try {
                     heapEntry = notification.getValue();

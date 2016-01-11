@@ -43,19 +43,13 @@ public class CacheTest {
             // Make sure we get what we expect
             checkGet(key, value, size);
 
-            // Remove from onHeap and try again
-            Assert.assertTrue(onHeap.remove(key));
-            checkGet(key, value, size);
-
-            // Remove from onHeap and offHeap and try again
-            Assert.assertTrue(onHeap.remove(key));
+            // Remove from offHeap and try again
             offHeap.removeAsync(key);
             Thread.sleep(1000L);
             checkGet(key, value, size);
 
-            // Remove from onHeap and diskStore and try again
+            // Remove from diskStore and try again
             if (kb <= 1024) {
-                Assert.assertTrue(onHeap.remove(key));
                 diskStore.removeAsync(key);
                 Thread.sleep(1000L);
                 checkGet(key, value, size);
@@ -101,12 +95,7 @@ public class CacheTest {
 
         Assert.assertTrue("Key not found: " + key, cache.contains(key));
 
-        // Remove from onHeap and try again
-        Assert.assertTrue(onHeap.remove(key));
-        Assert.assertTrue("Key not found: " + key, cache.contains(key));
-
-        // Remove from onHeap and offHeap and try again
-        Assert.assertTrue(onHeap.remove(key));
+        // Remove from offHeap and try again
         offHeap.removeAsync(key);
         Thread.sleep(1000L);
         Assert.assertTrue("Key not found: " + key, cache.contains(key));
@@ -209,26 +198,6 @@ public class CacheTest {
 
             checkBadKey(key);
         }
-    }
-
-    @Test
-    public void removeExpired() throws Exception {
-        // Wait for disk scavenger to do the initial run
-        Thread.sleep(2000L);
-
-        int size = 4 * 1024;
-        String key = getRandomKey();
-        byte[] value = getRandomBytes(size);
-
-        // Put is async for most part. So wait before checking
-        cache.put(key, value, 1);
-        Thread.sleep(3000L);
-
-        // Entry should be expired by now. Try running cleanup and check the cache
-        cache.cleanupExpired();
-        Thread.sleep(2000L);
-
-        checkBadKey(key);
     }
 
     private void checkBadKey(String key) throws CacheException {

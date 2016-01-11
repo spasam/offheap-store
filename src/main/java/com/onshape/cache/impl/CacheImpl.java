@@ -1,12 +1,12 @@
 package com.onshape.cache.impl;
 
 import java.nio.ByteBuffer;
-import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import com.onshape.cache.Cache;
@@ -28,41 +28,38 @@ public class CacheImpl implements Cache, InitializingBean {
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        diskStore.startScavengerAsync(new Function<String, Void>() {
-            @Override
-            public Void apply(String key) {
-                if (key != null) {
-                    LOG.info("Delete entry (expired): {}", key);
-                    onHeap.remove(key);
-                    offHeap.removeAsync(key);
-                }
-                return null;
-            }
-        });
+        long start = System.currentTimeMillis();
+        diskStore.getKeys((String key, Integer expiresAtSecs) -> onHeap.put(key, expiresAtSecs));
+        LOG.info("Keys from disk loaded in: {} ms", (System.currentTimeMillis() - start));
     }
 
     @Override
     public void put(String key, byte[] value, int expireSecs) throws CacheException {
-        onHeap.put(key);
+        int expiresAtSecs = 0;
+        if (expireSecs > 0) {
+            expiresAtSecs = (int) (System.currentTimeMillis() / 1000L) + expireSecs;
+        }
+
+        onHeap.put(key, expiresAtSecs);
         if (offHeap.accepts(value.length)) {
             offHeap.putAsync(key, value);
         }
-        diskStore.putAsync(key, value, expireSecs);
+        diskStore.putAsync(key, value, expiresAtSecs);
     }
 
     @Override
     public ByteBuffer get(String key) throws CacheException {
+        if (!onHeap.contains(key)) {
+            return null;
+        }
+
         // ByteBuffer is thread local. So all of these calls have to be synchronous
         ByteBuffer buffer = offHeap.get(key);
         if (buffer == null) {
             buffer = diskStore.get(key);
-            if (buffer != null) {
+            if (buffer != null && offHeap.accepts(buffer.limit())) {
                 offHeap.put(key, buffer, false);
             }
-        }
-
-        if (buffer != null && !onHeap.contains(key)) {
-            onHeap.put(key);
         }
 
         return buffer;
@@ -80,37 +77,39 @@ public class CacheImpl implements Cache, InitializingBean {
 
     @Override
     public boolean contains(String key) throws CacheException {
-        if (!onHeap.contains(key)) {
-            // If this service was restarted, onheap entries will be empty. Re-populate
-            if (diskStore.contains(key)) {
-                onHeap.put(key);
-                return true;
-            }
-
-            return false;
-        }
-
-        return true;
+        return onHeap.contains(key);
     }
 
     @Override
     public void removeHierarchy(String prefix) throws CacheException {
         diskStore.checkHierarchy(prefix);
-        diskStore.removeHierarchyAsync(prefix, new Function<String, Void>() {
-            @Override
-            public Void apply(String key) {
-                if (key != null) {
-                    LOG.info("Delete entry (hierarchy): {}", key);
-                    onHeap.remove(key);
+        diskStore.removeHierarchyAsync(prefix, (String key) -> {
+            if (key != null) {
+                LOG.info("Delete entry (hierarchy): {}", key);
+                onHeap.remove(key);
+                if (offHeap.isEnabled()) {
                     offHeap.removeAsync(key);
                 }
-                return null;
             }
         });
     }
 
     @Override
+    @Scheduled(initialDelay = 3600_000L, fixedDelayString = "${expiredCleanupDelayMs}")
     public void cleanupExpired() {
-        diskStore.pokeScavenger();
+        long start = System.currentTimeMillis();
+        LOG.info("Running expired cleanup task");
+        onHeap.cleanupExpired((String key) -> {
+            try {
+                if (offHeap.isEnabled()) {
+                    offHeap.removeAsync(key);
+                }
+                diskStore.removeAsync(key);
+            }
+            catch (Exception e) {
+                LOG.error("Error deleting expired entry: {}", key);
+            }
+        });
+        LOG.info("Expired cleanup task completed in: {} ms", (System.currentTimeMillis() - start));
     }
 }

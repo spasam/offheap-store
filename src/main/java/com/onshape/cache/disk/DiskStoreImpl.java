@@ -14,9 +14,12 @@ import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Function;
+import java.util.concurrent.Future;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +41,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     private static final Logger LOG = LoggerFactory.getLogger(DiskStoreImpl.class);
     private static final String EXPIRE_ATTR = "e";
     private static final String LOST_FOUND = "lost+found";
-    private static final String DISK_SCAVENGER_PREFIX = "ds-";
 
     @Autowired
     private ByteBufferCache bbc;
@@ -48,19 +50,17 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     /** Threshold beyond which memory mapping will be used for reading from and writing to files */
     @Value("${diskRoot}")
     private String root;
-    @Value("${diskScavengerIntervalSecs}")
-    private int diskScavengerIntervalSecs;
 
+    private int rootNameCount;
     private boolean expirationSupported;
-    private Object scavengerLock = new Object();
 
     @Override
     public void afterPropertiesSet() throws IOException {
         Path dir = Paths.get(root).toRealPath();
         root = dir.toString();
+        rootNameCount = dir.getNameCount();
 
         LOG.info("Disk store root: {}", root);
-        LOG.info("Disk scavenger interval secs: {}", diskScavengerIntervalSecs);
 
         if (Files.notExists(dir)) {
             Files.createDirectories(dir);
@@ -74,16 +74,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             expirationSupported = true;
         } else {
             LOG.error("File store '{}' does not support user file attributes. Expiration support is disabled", fs);
-        }
-    }
-
-    @Override
-    public boolean contains(String key) {
-        long start = System.currentTimeMillis();
-        try {
-            return Files.exists(Paths.get(root, key));
-        } finally {
-            ms.reportMetrics("disk.head", start);
         }
     }
 
@@ -130,7 +120,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     @Async
     @Override
-    public void putAsync(String key, byte[] value, int expireSecs) throws CacheException {
+    public void putAsync(String key, byte[] value, int expiresAtSecs) throws CacheException {
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         Path parent = path.getParent();
@@ -157,20 +147,18 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             throw new CacheException(e);
         }
 
-        ms.reportMetrics("disk.put", start);
-
         if (expirationSupported) {
             try {
                 ByteBuffer buffer = ByteBuffer.allocate(4);
-                buffer.putInt((int) (System.currentTimeMillis() / 1000L) + expireSecs);
+                buffer.putInt(expiresAtSecs);
                 buffer.flip();
 
                 Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).write(EXPIRE_ATTR, buffer);
             }
-            catch (IOException e) {
-                throw new CacheException(e);
-            }
+            catch (IOException e) {}
         }
+
+        ms.reportMetrics("disk.put", start);
     }
 
     @Override
@@ -186,69 +174,43 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     @Async
     @Override
-    public void removeHierarchyAsync(String prefix, Function<String, Void> deleteFunction) throws CacheException {
+    public void removeHierarchyAsync(String prefix, Consumer<String> consumer) throws CacheException {
         Path path = Paths.get(root, prefix);
         try {
             Files.walk(path)
                 .filter((Path p) -> Files.isRegularFile(p))
-                .forEach((Path p) -> remove(getKey(p), deleteFunction));
+                .forEach((Path p) -> remove(getKey(p), consumer));
         }
         catch (IOException e) {
             throw new CacheException(e);
         }
     }
 
-    @Async
     @Override
-    public void startScavengerAsync(Function<String, Void> deleteFunction) {
+    public void getKeys(BiConsumer<String, Integer> consumer) throws InterruptedException, ExecutionException {
         if (!expirationSupported) {
             return;
         }
 
-        while (true) {
-            List<String> cacheNames = getCacheNames();
-            cacheNames.remove(LOST_FOUND);
-
-            LOG.info("Running disk scavenger on caches: {}", cacheNames);
-            if (cacheNames.size() > 0) {
-                ExecutorService es = Executors.newFixedThreadPool(cacheNames.size(),
-                        (Runnable r) -> new Thread(r, DISK_SCAVENGER_PREFIX));
-                try {
-                    int now = (int) (System.currentTimeMillis() / 1000L);
-                    for (String cacheName : cacheNames) {
-                        es.submit(() -> scavengeCache(cacheName, now, deleteFunction));
-                    }
-
-                    Thread.sleep(5000L);
-                }
-                catch (InterruptedException e) {
-                    LOG.error("Interrupted after launching cache scavengers", e);
-                } finally {
-                    es.shutdown();
-                }
-            }
-
-            synchronized (scavengerLock) {
-                try {
-                    scavengerLock.wait(diskScavengerIntervalSecs * 1000L);
-                }
-                catch (InterruptedException e) {
-                    LOG.info("Scavenger interrupted while sleeping", e);
-                }
-            }
-        }
-    }
-
-    @Override
-    public void pokeScavenger() {
-        if (!expirationSupported) {
-            LOG.error("File system does not support user file attributes. Expiration support is disabled");
+        List<String> cacheNames = getCacheNames();
+        cacheNames.remove(LOST_FOUND);
+        if (cacheNames.size() < 1) {
             return;
         }
 
-        LOG.info("Waking up disk scavenger");
-        synchronized (scavengerLock) {
-            scavengerLock.notifyAll();
+        ExecutorService es = Executors.newFixedThreadPool(cacheNames.size(),
+                (Runnable r) -> new Thread(r, "kl"));
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (String cacheName : cacheNames) {
+                futures.add(es.submit(() -> getKeys(cacheName, consumer)));
+            }
+
+            for (Future<?> f : futures) {
+                f.get();
+            }
+        } finally {
+            es.shutdown();
         }
     }
 
@@ -283,37 +245,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         return caches;
     }
 
-    private void scavengeCache(String cacheName, int now, Function<String, Void> deleteFunction) {
-        LOG.info("Finding expired entries in: {}", cacheName);
-        ByteBuffer buffer = ByteBuffer.allocate(4);
-        try {
-            Files.walk(Paths.get(root, cacheName))
-                .filter((Path p) -> isExpired(p, now, buffer))
-                .forEach((Path p) -> remove(getKey(p), deleteFunction));
-        }
-        catch (IOException e) {
-            LOG.error("Error walking cache entries in: {}", cacheName, e);
-        }
-    }
-
-    private boolean isExpired(Path path, int now, ByteBuffer buffer) {
-        try {
-            if (!Files.isDirectory(path)) {
-                buffer.clear();
-                Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).read(EXPIRE_ATTR, buffer);
-                buffer.flip();
-
-                return buffer.hasRemaining() && buffer.getInt() < now;
-            }
-        }
-        catch (IOException e) {
-            // Does not have expire attribute. Keep the entry. Don't log, will be noisy
-        }
-
-        return false;
-    }
-
-    private void remove(String key, Function<String, Void> deleteFunction) {
+    private void remove(String key, Consumer<String> consumer) {
         try {
             Files.deleteIfExists(Paths.get(root, key));
         }
@@ -321,19 +253,47 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             LOG.error("Error deleting disk entry: {}", key, e);
         }
 
-        deleteFunction.apply(key);
+        consumer.accept(key);
         ms.increment("delete.expired");
     }
 
     private String getKey(Path path) {
-        int count = path.getNameCount();
-        if (count < 4) {
-            return null;
+        int pathNameCount = path.getNameCount();
+
+        if (pathNameCount - rootNameCount == 4) {
+            return path.getName(pathNameCount - 4)
+                    + "/" + path.getName(pathNameCount - 3)
+                    + "/" + path.getName(pathNameCount - 2)
+                    + "/" + path.getName(pathNameCount - 1);
         }
 
-        return path.getName(count - 4)
-                + "/" + path.getName(count - 3)
-                + "/" + path.getName(count - 2)
-                + "/" + path.getName(count - 1);
+        return path.getName(pathNameCount - 3)
+                + "/" + path.getName(pathNameCount - 2)
+                + "/" + path.getName(pathNameCount - 1);
+    }
+
+    private void getKeys(String cacheName, BiConsumer<String, Integer> consumer) {
+        try {
+            Files.walk(Paths.get(root, cacheName))
+                .filter((Path p) -> Files.isRegularFile(p))
+                .forEach((Path p) -> consumer.accept(getKey(p), getExpiresAt(p)));
+        }
+        catch (IOException e) {
+            LOG.error("Error getting keys for cache: {}", cacheName, e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private int getExpiresAt(Path path) {
+        try {
+            ByteBuffer buffer = ByteBuffer.allocate(4);
+            Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).read(EXPIRE_ATTR, buffer);
+            buffer.flip();
+
+            return buffer.hasRemaining() ? buffer.getInt() : 0;
+        }
+        catch (IOException e) {
+            return 0;
+        }
     }
 }
