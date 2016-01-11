@@ -2,8 +2,11 @@ package com.onshape.cache.util;
 
 import java.nio.ByteBuffer;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import com.onshape.cache.metrics.MetricService;
 
 @Component
 public class ByteBufferCache extends ThreadLocal<ByteBuffer> {
@@ -11,8 +14,13 @@ public class ByteBufferCache extends ThreadLocal<ByteBuffer> {
     @Value("${cachedBufferSize}")
     private int cachedBufferSize;
 
+    @Autowired
+    private MetricService ms;
+
     @Override
     protected ByteBuffer initialValue() {
+        ms.increment("byte.buffer.direct.count");
+        ms.increment("byte.buffer.direct.size", cachedBufferSize);
         return ByteBuffer.allocateDirect(cachedBufferSize);
     }
 
@@ -21,6 +29,7 @@ public class ByteBufferCache extends ThreadLocal<ByteBuffer> {
         if (capacity <= cachedBufferSize) {
             buf = get();
         } else {
+            ms.increment("byte.buffer.size", capacity);
             buf = ByteBuffer.allocate(capacity);
         }
 

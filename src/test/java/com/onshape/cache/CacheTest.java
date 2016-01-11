@@ -181,7 +181,7 @@ public class CacheTest {
 
     @Test
     public void removeHierarchy() throws Exception {
-        for (String prefix : new String[] { "a/1", "a/1/x" }) {
+        for (String prefix : new String[] { "test/1", "test/1/x" }) {
             int size = 4 * 1024;
             String key = getRandomKey();
             byte[] value = getRandomBytes(size);
@@ -216,7 +216,7 @@ public class CacheTest {
     }
 
     private static String getRandomKey() {
-        return "a/1/x/" + Base64Utils.encodeToUrlSafeString(getRandomBytes(32));
+        return "test/1/x/" + Base64Utils.encodeToUrlSafeString(getRandomBytes(32));
     }
 
     private static byte[] getRandomBytes(int size) {
