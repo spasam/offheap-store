@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
+import java.util.List;
 
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletResponse;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
 import com.onshape.cache.Cache;
@@ -133,6 +135,20 @@ public class CacheController {
         ms.time("get.took." + c, took);
         ms.increment("get.total.size." + c, buffer.limit());
         ms.increment("get.total.time." + c, took);
+    }
+
+    @RequestMapping(path = "list/{c}/{v}/{x}",
+            method = RequestMethod.GET)
+    public @ResponseBody List<String> list(HttpServletResponse response,
+            @NotNull @Size(min = 1) @PathVariable("c") String c,
+            @NotNull @Size(min = 1) @PathVariable("v") String v,
+            @NotNull @Size(min = 1) @PathVariable("x") String x)
+                    throws CacheException, IOException {
+        long start = System.currentTimeMillis();
+        List<String> list = cache.list(c + "/" + v + "/" + x);
+        ms.reportMetrics("list", c, start);
+
+        return list;
     }
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",

@@ -1,6 +1,7 @@
 package com.onshape.cache.impl;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,11 @@ public class CacheImpl implements Cache, InitializingBean {
         }
 
         return buffer;
+    }
+
+    @Override
+    public List<String> list(String prefix) throws CacheException {
+        return diskStore.list(prefix);
     }
 
     @Override

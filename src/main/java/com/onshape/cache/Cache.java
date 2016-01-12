@@ -1,6 +1,7 @@
 package com.onshape.cache;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 import com.onshape.cache.exception.CacheException;
 
@@ -16,4 +17,6 @@ public interface Cache {
     void removeHierarchy(String prefix) throws CacheException;
 
     void cleanupExpired();
+
+    List<String> list(String prefix) throws CacheException;
 }

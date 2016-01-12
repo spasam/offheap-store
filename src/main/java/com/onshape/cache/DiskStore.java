@@ -1,6 +1,7 @@
 package com.onshape.cache;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -19,4 +20,6 @@ public interface DiskStore {
     void removeHierarchyAsync(String prefix, Consumer<String> consumer) throws CacheException;
 
     void getKeys(BiConsumer<String, Integer> consumer) throws InterruptedException, ExecutionException;
+
+    List<String> list(String prefix) throws CacheException;
 }

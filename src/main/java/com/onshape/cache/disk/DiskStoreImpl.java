@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service;
 
 import com.onshape.cache.DiskStore;
 import com.onshape.cache.exception.CacheException;
+import com.onshape.cache.exception.EntryNotFoundException;
 import com.onshape.cache.metrics.MetricService;
 import com.onshape.cache.util.ByteBufferCache;
 
@@ -101,6 +102,30 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         }
         catch (IOException e) {
             LOG.error("Error reading file for entry: {}", key, e);
+            throw new CacheException(e);
+        }
+    }
+
+    @Override
+    public List<String> list(String prefix) throws CacheException {
+        long start = System.currentTimeMillis();
+        Path path = Paths.get(root, prefix);
+        if (Files.notExists(path)) {
+            ms.increment("disk.list.miss");
+            throw new EntryNotFoundException();
+        }
+
+        try {
+            List<String> keys = new ArrayList<>();
+            Files.walk(path, 1)
+                .filter((Path p) -> Files.isRegularFile(p))
+                .forEach((Path p) -> keys.add(p.getFileName().toString()));
+
+            ms.reportMetrics("disk.list", start);
+            return keys;
+        }
+        catch (IOException e) {
+            LOG.error("Failed to list directory: {}", prefix, e);
             throw new CacheException(e);
         }
     }
