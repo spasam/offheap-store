@@ -29,7 +29,6 @@ import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalNotification;
 import com.onshape.cache.OffHeap;
 import com.onshape.cache.metrics.MetricService;
-import com.onshape.cache.util.ByteBufferCache;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
@@ -95,8 +94,28 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         }
     }
 
-    @Autowired
-    private ByteBufferCache byteBufferCache;
+    private class ByteBufferCache extends ThreadLocal<ByteBuffer> {
+        @Override
+        protected ByteBuffer initialValue() {
+            ms.increment("byte.buffer.direct.count");
+            ms.increment("byte.buffer.direct.size", maxEntrySizeBytes);
+            return ByteBuffer.allocateDirect(maxEntrySizeBytes);
+        }
+
+        public ByteBuffer get(int capacity) {
+            ByteBuffer buf;
+            if (capacity <= maxEntrySizeBytes) {
+                buf = get();
+            } else {
+                ms.increment("byte.buffer.size", capacity);
+                buf = ByteBuffer.allocate(capacity);
+            }
+
+            buf.clear();
+            return buf;
+        }
+    }
+
     @Autowired
     private MetricService ms;
 
@@ -114,6 +133,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     private Lock[] readLocks;
     private Lock[] writeLocks;
 
+    private ByteBufferCache byteBufferCache;
     private Cache<String, HeapEntry> offHeapEntries;
     private List<RemovalNotification<String, HeapEntry>> lazyCleaningList = Collections.synchronizedList(
             new LinkedList<>());
@@ -145,6 +165,8 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
             writeLocks[i] = rwLock.writeLock();
         }
 
+        byteBufferCache = new ByteBufferCache();
+
         offHeapEntries = CacheBuilder.newBuilder()
             .initialCapacity(maxOffHeapEntries)
             .maximumWeight(maxOffHeapSizeBytes)
@@ -159,31 +181,30 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     @Async
     @Override
     public void putAsync(String key, byte[] value) {
+        if (offHeapDisabled) {
+            return;
+        }
+
+        if (value.length > maxEntrySizeBytes) {
+            ms.increment("offheap.entry.size.exceed");
+            return;
+        }
+
         put(key, ByteBuffer.wrap(value), true);
     }
 
     @Override
     public void put(String key, ByteBuffer buffer, boolean replace) {
-        if (offHeapDisabled) {
-            return;
-        }
-
-        int length = buffer.limit();
-        if (length > maxEntrySizeBytes) {
-            ms.increment("offheap.entry.size.exceed");
-            return;
-        }
-
         if (!replace && offHeapEntries.getIfPresent(key) != null) {
             return;
         }
 
         long start = System.currentTimeMillis();
+        int length = buffer.limit();
         int normalizedSizeBytes = normalizedSize(length);
 
         ByteBuf buf = allocateBuffer(normalizedSizeBytes);
         buf.writeBytes(buffer);
-        buffer.flip();
 
         // If we are replacing the value, removal notification will be called with old value
         // Removal notification will take care of cleaning old heap entry

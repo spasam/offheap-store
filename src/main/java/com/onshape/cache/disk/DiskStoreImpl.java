@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,7 +36,6 @@ import com.onshape.cache.DiskStore;
 import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.exception.EntryNotFoundException;
 import com.onshape.cache.metrics.MetricService;
-import com.onshape.cache.util.ByteBufferCache;
 
 @Service
 public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicator {
@@ -43,8 +43,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     private static final String EXPIRE_ATTR = "e";
     private static final String LOST_FOUND = "lost+found";
 
-    @Autowired
-    private ByteBufferCache bbc;
     @Autowired
     private MetricService ms;
 
@@ -90,11 +88,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         try {
             try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
                 FileChannel fileChannel = raf.getChannel();
-                int size = (int) fileChannel.size();
-
-                ByteBuffer buffer = bbc.get(size);
-                fileChannel.read(buffer);
-                buffer.flip();
+                ByteBuffer buffer = fileChannel.map(MapMode.READ_ONLY, 0, fileChannel.size());
 
                 ms.reportMetrics("disk.get", start);
                 return buffer;
