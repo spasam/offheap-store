@@ -54,7 +54,6 @@ public class CacheImpl implements Cache, InitializingBean {
             return null;
         }
 
-        // ByteBuffer is thread local. So all of these calls have to be synchronous
         ByteBuffer buffer = offHeap.get(key);
         if (buffer == null) {
             buffer = diskStore.get(key);

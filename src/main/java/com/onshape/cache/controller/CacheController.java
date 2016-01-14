@@ -37,7 +37,6 @@ import com.onshape.cache.metrics.MetricService;
 @RequestMapping("/")
 public class CacheController {
     private static final Logger LOG = LoggerFactory.getLogger(CacheController.class);
-    private static final String OCTET_STREAM = "application/octet-stream";
     private static final String EXPIRES_HEADER = "X-Expires";
 
     @Autowired
@@ -46,8 +45,7 @@ public class CacheController {
     private MetricService ms;
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",
-            method = RequestMethod.PUT,
-            consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+            method = RequestMethod.PUT)
     @ResponseStatus(value = HttpStatus.CREATED)
     public void create(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
@@ -60,8 +58,7 @@ public class CacheController {
     }
 
     @RequestMapping(path = "{c}/{v}/{k}",
-            method = RequestMethod.PUT,
-            consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+            method = RequestMethod.PUT)
     @ResponseStatus(value = HttpStatus.CREATED)
     public void create(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
@@ -120,7 +117,7 @@ public class CacheController {
         }
 
         response.setStatus(HttpStatus.OK.value());
-        response.setContentType(OCTET_STREAM);
+        response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
         response.setContentLength(buffer.limit());
 
         ServletOutputStream os = response.getOutputStream();

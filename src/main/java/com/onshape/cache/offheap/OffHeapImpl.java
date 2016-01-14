@@ -181,15 +181,6 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     @Async
     @Override
     public void putAsync(String key, byte[] value) {
-        if (offHeapDisabled) {
-            return;
-        }
-
-        if (value.length > maxEntrySizeBytes) {
-            ms.increment("offheap.entry.size.exceed");
-            return;
-        }
-
         put(key, ByteBuffer.wrap(value), true);
     }
 
