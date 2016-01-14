@@ -153,7 +153,7 @@ public class CacheController {
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",
             method = RequestMethod.HEAD)
-    @ResponseStatus(value = HttpStatus.FOUND)
+    @ResponseStatus(value = HttpStatus.OK)
     public void contains(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("x") String x,
@@ -164,7 +164,7 @@ public class CacheController {
 
     @RequestMapping(path = "{c}/{v}/{k}",
             method = RequestMethod.HEAD)
-    @ResponseStatus(value = HttpStatus.FOUND)
+    @ResponseStatus(value = HttpStatus.OK)
     public void contains(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("k") String k)
@@ -182,7 +182,7 @@ public class CacheController {
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",
             method = RequestMethod.DELETE)
-    @ResponseStatus(value = HttpStatus.NO_CONTENT)
+    @ResponseStatus(value = HttpStatus.OK)
     public void remove(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("x") String x,
@@ -193,7 +193,7 @@ public class CacheController {
 
     @RequestMapping(path = "{c}/{v}/{k}",
             method = RequestMethod.DELETE)
-    @ResponseStatus(value = HttpStatus.NO_CONTENT)
+    @ResponseStatus(value = HttpStatus.OK)
     public void remove(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("k") String k)
@@ -215,7 +215,7 @@ public class CacheController {
 
     @RequestMapping(path = "{c}/{v}/{x}",
             method = RequestMethod.DELETE)
-    @ResponseStatus(value = HttpStatus.NO_CONTENT)
+    @ResponseStatus(value = HttpStatus.OK)
     public void removeHierarchy(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("x") String x)
@@ -225,7 +225,7 @@ public class CacheController {
 
     @RequestMapping(path = "{c}/{v}",
             method = RequestMethod.DELETE)
-    @ResponseStatus(value = HttpStatus.NO_CONTENT)
+    @ResponseStatus(value = HttpStatus.OK)
     public void removeHierarchy(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v)
                     throws CacheException {
@@ -238,7 +238,7 @@ public class CacheController {
     }
 
     @RequestMapping(method = RequestMethod.DELETE)
-    @ResponseStatus(value = HttpStatus.NO_CONTENT)
+    @ResponseStatus(value = HttpStatus.OK)
     public void cleanupExpired() {
         cache.cleanupExpired();
     }
