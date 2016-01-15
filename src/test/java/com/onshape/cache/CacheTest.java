@@ -209,7 +209,7 @@ public class CacheTest {
         ByteBuffer buffer = cache.get(key);
         Assert.assertNotNull("Entry not found for key: " + key + ". Expected size: " + size, buffer);
         Assert.assertEquals("Expected position: 0. Got: " + buffer.position(), 0, buffer.position());
-        Assert.assertEquals("Expected limit: " + size + ". Got: " + buffer.limit(), size, buffer.limit());
+        Assert.assertEquals("Expected limit: " + size + ". Got: " + buffer.remaining(), size, buffer.remaining());
         for (int i = 0; i < size; i++) {
             Assert.assertEquals("Byte mismatch at index: " + i, expected[i], buffer.get());
         }

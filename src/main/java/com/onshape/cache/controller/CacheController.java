@@ -118,7 +118,7 @@ public class CacheController {
 
         response.setStatus(HttpStatus.OK.value());
         response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
-        response.setContentLength(buffer.limit());
+        response.setContentLength(buffer.remaining());
 
         ServletOutputStream os = response.getOutputStream();
         WritableByteChannel channel = Channels.newChannel(os);
@@ -128,9 +128,9 @@ public class CacheController {
         os.flush();
 
         int took = ms.reportMetrics("get", c, start);
-        ms.gauge("get.size." + c, buffer.limit());
+        ms.gauge("get.size." + c, buffer.remaining());
         ms.time("get.took." + c, took);
-        ms.increment("get.total.size." + c, buffer.limit());
+        ms.increment("get.total.size." + c, buffer.remaining());
         ms.increment("get.total.time." + c, took);
     }
 

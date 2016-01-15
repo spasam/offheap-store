@@ -218,7 +218,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         }
 
         ExecutorService es = Executors.newFixedThreadPool(cacheNames.size(),
-                (Runnable r) -> new Thread(r, "kl"));
+                (Runnable r) -> new Thread(r, "startup"));
         try {
             List<Future<?>> futures = new ArrayList<>();
             for (String cacheName : cacheNames) {

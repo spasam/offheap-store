@@ -57,7 +57,7 @@ public class CacheImpl implements Cache, InitializingBean {
         ByteBuffer buffer = offHeap.get(key);
         if (buffer == null) {
             buffer = diskStore.get(key);
-            if (buffer != null && offHeap.accepts(buffer.limit())) {
+            if (buffer != null && offHeap.accepts(buffer.remaining())) {
                 offHeap.put(key, buffer, false);
                 buffer.flip();
             }
