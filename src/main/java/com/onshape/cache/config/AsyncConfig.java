@@ -19,19 +19,16 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class AsyncConfig implements AsyncConfigurer {
     private static final Logger LOG = LoggerFactory.getLogger(AsyncConfig.class);
 
-    @Value("${asyncCorePoolSize}")
-    private int asyncCorePoolSize;
-    @Value("${asyncMaxPoolSize}")
-    private int asyncMaxPoolSize;
+    @Value("${asyncPoolSize}")
+    private int asyncPoolSize;
 
     @Override
     public Executor getAsyncExecutor() {
-        LOG.info("Async core pool size: {}", asyncCorePoolSize);
-        LOG.info("Async max pool size: {}", asyncMaxPoolSize);
+        LOG.info("Async pool size: {}", asyncPoolSize);
 
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(asyncCorePoolSize);
-        executor.setMaxPoolSize(asyncMaxPoolSize);
+        executor.setCorePoolSize(asyncPoolSize);
+        executor.setMaxPoolSize(asyncPoolSize);
         executor.setThreadNamePrefix("async-");
         executor.initialize();
 
