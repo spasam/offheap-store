@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -31,7 +32,6 @@ import com.onshape.cache.OffHeap;
 import com.onshape.cache.metrics.MetricService;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 
 @Service
@@ -125,8 +125,13 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     private long maxOffHeapSizeBytes;
     @Value("${server.tomcat.max-threads}")
     private int concurrencyLevel;
+    @Value("${evictionThreshold}")
+    private int evictionThreshold;
+    @Value("${blockDurationMs}")
+    private int blockDurationMs;
 
     private int maxEntrySizeBytes;
+    private AtomicBoolean temporarySkipOffHeap;
     private AtomicLong allocatedOffHeapSize;
     private PooledByteBufAllocator allocator;
 
@@ -147,12 +152,15 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         int maxOffHeapEntries = (int) (maxOffHeapSizeBytes / NORMAL_CACHE_SIZE);
         maxEntrySizeBytes = PAGE_SIZE << MAX_ORDER;
 
-        LOG.info("Offheap block size bytes: {}", NORMAL_CACHE_SIZE);
+        LOG.info("OffHeap block size bytes: {}", NORMAL_CACHE_SIZE);
         LOG.info("Max offheap size bytes: {}", maxOffHeapSizeBytes);
         LOG.info("Max offheap entry size bytes: {}", maxEntrySizeBytes);
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);
         LOG.info("Concurrent locks: {}", concurrencyLevel);
+        LOG.info("Eviction threshold: {}", evictionThreshold);
+        LOG.info("Blocking duration: {} ms", blockDurationMs);
 
+        temporarySkipOffHeap = new AtomicBoolean(false);
         allocatedOffHeapSize = new AtomicLong(0);
         allocator = new PooledByteBufAllocator(true, 0, DIRECT_ARENA_COUNT, PAGE_SIZE, MAX_ORDER,
                 TINY_CACHE_SIZE, SMALL_CACHE_SIZE, NORMAL_CACHE_SIZE);
@@ -191,7 +199,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         }
 
         long start = System.currentTimeMillis();
-        int length = buffer.limit();
+        int length = buffer.remaining();
         int normalizedSizeBytes = normalizedSize(length);
 
         ByteBuf buf = allocateBuffer(normalizedSizeBytes);
@@ -267,7 +275,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
 
     @Override
     public boolean accepts(int sizeBytes) {
-        return !offHeapDisabled && sizeBytes <= maxEntrySizeBytes;
+        return !offHeapDisabled && sizeBytes <= maxEntrySizeBytes && !temporarySkipOffHeap.get();
     }
 
     @Override
@@ -279,7 +287,11 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     }
 
     private void freeOffHeapEntries() {
+        long blockedAt = 0;
+
         while (true) {
+            int size = lazyCleaningList.size();
+
             while (!lazyCleaningList.isEmpty()) {
                 RemovalNotification<String, HeapEntry> notification = lazyCleaningList.remove(0);
                 RemovalCause cause = notification.getCause();
@@ -303,9 +315,21 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                 ms.decrement("offheap.count");
 
                 if (cause == RemovalCause.SIZE) {
-                    LOG.info("Evicted from offheap: {}", notification.getKey());
+                    LOG.debug("Evicted from offheap: {}", notification.getKey());
                     ms.increment("offheap.evicted");
                 }
+            }
+
+            // Throttle offheap usage for a while, if there are too many evictions
+            if (size > evictionThreshold) {
+                if (temporarySkipOffHeap.compareAndSet(false, true)) {
+                    LOG.debug("Blocking offheap usage");
+                    ms.increment("offheap.blocked");
+                    blockedAt = System.currentTimeMillis();
+                }
+            } else if (blockedAt > 0 && System.currentTimeMillis() > (blockedAt + blockDurationMs)) {
+                temporarySkipOffHeap.compareAndSet(true, false);
+                blockedAt = 0L;
             }
 
             // Before cleaning the list again, sleep for a second
@@ -324,12 +348,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         }
 
         int count = (int) Math.ceil((double) normalizedSizeBytes / NORMAL_CACHE_SIZE);
-        CompositeByteBuf buf = allocator.compositeDirectBuffer(count);
-        for (int i = 0; i < count; i++) {
-            buf.addComponent(allocator.directBuffer(NORMAL_CACHE_SIZE, NORMAL_CACHE_SIZE));
-        }
-
-        return buf;
+        return allocator.compositeDirectBuffer(count);
     }
 
     private static int normalizedSize(int sizeBytes) {

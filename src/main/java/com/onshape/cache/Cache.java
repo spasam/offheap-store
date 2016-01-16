@@ -6,7 +6,7 @@ import java.util.List;
 import com.onshape.cache.exception.CacheException;
 
 public interface Cache {
-    void put(String key, byte[] value, int expireSecs) throws CacheException;
+    void put(String key, byte[] value, int expireSecs, boolean useOffHeap) throws CacheException;
 
     ByteBuffer get(String key) throws CacheException;
 

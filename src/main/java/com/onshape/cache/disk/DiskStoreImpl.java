@@ -87,11 +87,12 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
         try {
             try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
-                FileChannel fileChannel = raf.getChannel();
-                ByteBuffer buffer = fileChannel.map(MapMode.READ_ONLY, 0, fileChannel.size());
+                try (FileChannel fileChannel = raf.getChannel()) {
+                    ByteBuffer buffer = fileChannel.map(MapMode.READ_ONLY, 0, fileChannel.size());
 
-                ms.reportMetrics("disk.get", start);
-                return buffer;
+                    ms.reportMetrics("disk.get", start);
+                    return buffer;
+                }
             }
         }
         catch (IOException e) {
@@ -153,8 +154,10 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         }
 
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
-            raf.setLength(0);
-            raf.getChannel().write(ByteBuffer.wrap(value));
+            try (FileChannel fileChannel = raf.getChannel()) {
+                fileChannel.truncate(value.length);
+                fileChannel.write(ByteBuffer.wrap(value));
+            }
         }
         catch (IOException e) {
             try {
@@ -218,7 +221,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         }
 
         ExecutorService es = Executors.newFixedThreadPool(cacheNames.size(),
-                (Runnable r) -> new Thread(r, "kl"));
+                (Runnable r) -> new Thread(r, "startup"));
         try {
             List<Future<?>> futures = new ArrayList<>();
             for (String cacheName : cacheNames) {
