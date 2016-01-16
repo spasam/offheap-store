@@ -35,14 +35,14 @@ public class CacheImpl implements Cache, InitializingBean {
     }
 
     @Override
-    public void put(String key, byte[] value, int expireSecs) throws CacheException {
+    public void put(String key, byte[] value, int expireSecs, boolean useOffHeap) throws CacheException {
         int expiresAtSecs = 0;
         if (expireSecs > 0) {
             expiresAtSecs = (int) (System.currentTimeMillis() / 1000L) + expireSecs;
         }
 
         onHeap.put(key, expiresAtSecs);
-        if (offHeap.accepts(value.length)) {
+        if (useOffHeap && offHeap.accepts(value.length)) {
             offHeap.putAsync(key, value);
         }
         diskStore.putAsync(key, value, expiresAtSecs);

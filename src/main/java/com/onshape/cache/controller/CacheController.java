@@ -37,7 +37,8 @@ import com.onshape.cache.metrics.MetricService;
 @RequestMapping("/")
 public class CacheController {
     private static final Logger LOG = LoggerFactory.getLogger(CacheController.class);
-    private static final String EXPIRES_HEADER = "X-Expires";
+    private static final String HEADER_EXPIRES = "X-Expires";
+    private static final String HEADER_USE_OFFHEAP = "X-UseOffHeap";
 
     @Autowired
     private Cache cache;
@@ -51,10 +52,11 @@ public class CacheController {
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("x") String x,
             @NotNull @Size(min = 1) @PathVariable("k") String k,
-            @Min(0) @RequestHeader(EXPIRES_HEADER) int expireSecs,
+            @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
+            @RequestHeader(HEADER_USE_OFFHEAP) Boolean useOffHeap,
             @NotNull @Size(min = 1) HttpEntity<byte[]> value)
                     throws CacheException {
-        create(c, c + "/" + v + "/" + x + "/" + k, value, expireSecs);
+        create(c, c + "/" + v + "/" + x + "/" + k, value, expireSecs, useOffHeap);
     }
 
     @RequestMapping(path = "{c}/{v}/{k}",
@@ -63,18 +65,20 @@ public class CacheController {
     public void create(@NotNull @Size(min = 1) @PathVariable("c") String c,
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("k") String k,
-            @Min(0) @RequestHeader(EXPIRES_HEADER) int expireSecs,
+            @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
+            @RequestHeader(HEADER_USE_OFFHEAP) Boolean useOffHeap,
             @NotNull @Size(min = 1) HttpEntity<byte[]> value)
                     throws CacheException {
-        create(c, c + "/" + v + "/" + k, value, expireSecs);
+        create(c, c + "/" + v + "/" + k, value, expireSecs, useOffHeap);
     }
 
-    private void create(String c, String key, HttpEntity<byte[]> value, int expireSecs) throws CacheException {
+    private void create(String c, String key, HttpEntity<byte[]> value, int expireSecs, Boolean useOffHeap)
+            throws CacheException {
         long start = System.currentTimeMillis();
         byte[] bytes = value.getBody();
         int size = bytes.length;
 
-        cache.put(key, bytes, expireSecs);
+        cache.put(key, bytes, expireSecs, (useOffHeap == null || useOffHeap.booleanValue()));
 
         int took = ms.reportMetrics("put", c, start);
         ms.gauge("put.size." + c, size);

@@ -152,7 +152,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         int maxOffHeapEntries = (int) (maxOffHeapSizeBytes / NORMAL_CACHE_SIZE);
         maxEntrySizeBytes = PAGE_SIZE << MAX_ORDER;
 
-        LOG.info("Offheap block size bytes: {}", NORMAL_CACHE_SIZE);
+        LOG.info("OffHeap block size bytes: {}", NORMAL_CACHE_SIZE);
         LOG.info("Max offheap size bytes: {}", maxOffHeapSizeBytes);
         LOG.info("Max offheap entry size bytes: {}", maxEntrySizeBytes);
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);

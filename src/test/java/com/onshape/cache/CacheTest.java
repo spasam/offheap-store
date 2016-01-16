@@ -37,7 +37,7 @@ public class CacheTest {
             byte[] value = getRandomBytes(size);
 
             // Put is async for most part. So wait before getting
-            cache.put(key, value, EXPIRES);
+            cache.put(key, value, EXPIRES, true);
             Thread.sleep(500L);
 
             // Make sure we get what we expect
@@ -71,7 +71,7 @@ public class CacheTest {
         byte[] value = getRandomBytes(size);
 
         // Put is async for most part. So wait before getting
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(500L);
 
         // Make sure we get what we expect
@@ -90,7 +90,7 @@ public class CacheTest {
         byte[] value = getRandomBytes(size);
 
         // Put is async for most part. So wait before checking
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(500L);
 
         Assert.assertTrue("Key not found: " + key, cache.contains(key));
@@ -116,7 +116,7 @@ public class CacheTest {
         byte[] value = getRandomBytes(size);
 
         // Put is async for most part. So wait before checking
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(500L);
 
         // Remove from offheap
@@ -126,7 +126,7 @@ public class CacheTest {
         // Put a new value (smaller)
         size = 1024;
         value = getRandomBytes(size);
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(1000L);
 
         // Remove the new value from offheap
@@ -139,7 +139,7 @@ public class CacheTest {
         // Put a new value (larger)
         size = 8 * 1024;
         value = getRandomBytes(size);
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(1000L);
 
         // Remove the new value from offheap
@@ -157,13 +157,13 @@ public class CacheTest {
         byte[] value = getRandomBytes(size);
 
         // Put is async for most part. So wait before checking
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(500L);
 
         // Put a new value (smaller)
         size = 1024;
         value = getRandomBytes(size);
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(1000L);
 
         // Make sure we get the new value
@@ -172,7 +172,7 @@ public class CacheTest {
         // Put a new value (larger)
         size = 8 * 1024;
         value = getRandomBytes(size);
-        cache.put(key, value, EXPIRES);
+        cache.put(key, value, EXPIRES, true);
         Thread.sleep(1000L);
 
         // Make sure we get the new value
@@ -187,7 +187,7 @@ public class CacheTest {
             byte[] value = getRandomBytes(size);
 
             // Put is async for most part. So wait before checking
-            cache.put(key, value, EXPIRES);
+            cache.put(key, value, EXPIRES, true);
             Thread.sleep(500L);
 
             // Remove from onheap and offheap and use remove hierarchy
