@@ -48,13 +48,6 @@ public class CacheTest {
             Thread.sleep(1000L);
             checkGet(key, value, size);
 
-            // Remove from diskStore and try again
-            if (kb <= 1024) {
-                diskStore.removeAsync(key);
-                Thread.sleep(1000L);
-                checkGet(key, value, size);
-            }
-
             // Remove from everywhere and try again
             Assert.assertTrue(onHeap.remove(key));
             offHeap.removeAsync(key);
