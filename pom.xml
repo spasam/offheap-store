@@ -21,13 +21,6 @@
       <version>19.0</version>
     </dependency>
 
-    <!-- Netty -->
-    <dependency>
-      <groupId>io.netty</groupId>
-      <artifactId>netty-buffer</artifactId>
-      <version>4.0.33.Final</version>
-    </dependency>
-
     <!-- Spring -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

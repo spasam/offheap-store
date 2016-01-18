@@ -6,7 +6,6 @@ import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
 import java.util.List;
 
-import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletResponse;
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
@@ -53,10 +52,9 @@ public class CacheController {
             @NotNull @Size(min = 1) @PathVariable("x") String x,
             @NotNull @Size(min = 1) @PathVariable("k") String k,
             @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
-            @RequestHeader(HEADER_USE_OFFHEAP) Boolean useOffHeap,
             @NotNull @Size(min = 1) HttpEntity<byte[]> value)
                     throws CacheException {
-        create(c, c + "/" + v + "/" + x + "/" + k, value, expireSecs, useOffHeap);
+        create(c, c + "/" + v + "/" + x + "/" + k, value, expireSecs);
     }
 
     @RequestMapping(path = "{c}/{v}/{k}",
@@ -66,19 +64,18 @@ public class CacheController {
             @NotNull @Size(min = 1) @PathVariable("v") String v,
             @NotNull @Size(min = 1) @PathVariable("k") String k,
             @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
-            @RequestHeader(HEADER_USE_OFFHEAP) Boolean useOffHeap,
             @NotNull @Size(min = 1) HttpEntity<byte[]> value)
                     throws CacheException {
-        create(c, c + "/" + v + "/" + k, value, expireSecs, useOffHeap);
+        create(c, c + "/" + v + "/" + k, value, expireSecs);
     }
 
-    private void create(String c, String key, HttpEntity<byte[]> value, int expireSecs, Boolean useOffHeap)
-            throws CacheException {
+    private void create(String c, String key, HttpEntity<byte[]> value, int expireSecs) throws CacheException {
         long start = System.currentTimeMillis();
         byte[] bytes = value.getBody();
         int size = bytes.length;
+        String useOffHeap = value.getHeaders().getFirst(HEADER_USE_OFFHEAP);
 
-        cache.put(key, bytes, expireSecs, (useOffHeap == null || useOffHeap.booleanValue()));
+        cache.put(key, bytes, expireSecs, (useOffHeap == null || "true".equalsIgnoreCase(useOffHeap)));
 
         int took = ms.reportMetrics("put", c, start);
         ms.gauge("put.size." + c, size);
@@ -124,12 +121,8 @@ public class CacheController {
         response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
         response.setContentLength(buffer.remaining());
 
-        ServletOutputStream os = response.getOutputStream();
-        WritableByteChannel channel = Channels.newChannel(os);
-        while (buffer.remaining() > 0) {
-            channel.write(buffer);
-        }
-        os.flush();
+        WritableByteChannel channel = Channels.newChannel(response.getOutputStream());
+        channel.write(buffer);
 
         int took = ms.reportMetrics("get", c, start);
         ms.gauge("get.size." + c, buffer.remaining());
