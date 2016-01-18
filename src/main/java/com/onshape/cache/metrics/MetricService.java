@@ -81,7 +81,7 @@ public class MetricService implements PublicMetrics, InitializingBean {
                 (k, m) -> (m == null)
                         ? new Metric<Long>(COUNTER_PREFIX + prefix, (long) increment)
                         : m.increment(increment));
-        if (client != null) {
+        if (statsdEnabled) {
             client.count(metric.getName(), metric.getValue().longValue());
         }
     }
@@ -89,7 +89,7 @@ public class MetricService implements PublicMetrics, InitializingBean {
     public void gauge(String prefix, double value) {
         Metric<?> metric = metrics.compute(GAUGE_PREFIX + prefix,
                 (k, m) -> (m == null) ? new Metric<Double>(k, value) : m.set(value));
-        if (client != null) {
+        if (statsdEnabled) {
             client.gauge(metric.getName(), metric.getValue().doubleValue());
         }
     }
@@ -97,7 +97,7 @@ public class MetricService implements PublicMetrics, InitializingBean {
     public void time(String prefix, long tookMs) {
         Metric<?> metric = metrics.compute(TIMER_PREFIX + prefix,
                 (k, m) -> (m == null) ? new Metric<Long>(k, tookMs) : m.set(tookMs));
-        if (client != null) {
+        if (statsdEnabled) {
             client.recordExecutionTime(metric.getName(), metric.getValue().longValue());
         }
     }
