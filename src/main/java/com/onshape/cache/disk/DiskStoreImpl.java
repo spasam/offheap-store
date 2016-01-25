@@ -40,6 +40,7 @@ import com.onshape.cache.metrics.MetricService;
 @Service
 public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(DiskStoreImpl.class);
+    private static final int TRANSFER_SIZE = 1024 * 1024;
     private static final String EXPIRE_ATTR = "e";
     private static final String LOST_FOUND = "lost+found";
 
@@ -155,8 +156,15 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
             try (FileChannel fileChannel = raf.getChannel()) {
-                fileChannel.truncate(value.length);
-                fileChannel.write(ByteBuffer.wrap(value));
+                int size = value.length;
+                fileChannel.truncate(size);
+
+                int length, offset = 0;
+                while (offset < size) {
+                    length = Math.min((size - offset), TRANSFER_SIZE);
+                    ByteBuffer buffer = ByteBuffer.wrap(value, offset, length);
+                    offset += fileChannel.write(buffer);
+                }
             }
         }
         catch (IOException e) {

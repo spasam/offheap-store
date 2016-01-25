@@ -1,9 +1,8 @@
 package com.onshape.cache.controller;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
-import java.nio.channels.WritableByteChannel;
 import java.util.List;
 
 import javax.servlet.http.HttpServletResponse;
@@ -36,6 +35,7 @@ import com.onshape.cache.metrics.MetricService;
 @RequestMapping("/")
 public class CacheController {
     private static final Logger LOG = LoggerFactory.getLogger(CacheController.class);
+    private static final int TRANSFER_SIZE = 8192;
     private static final String HEADER_EXPIRES = "X-Expires";
     private static final String HEADER_USE_OFFHEAP = "X-UseOffHeap";
 
@@ -117,17 +117,25 @@ public class CacheController {
             throw new EntryNotFoundException();
         }
 
+        int size = buffer.remaining();
+        OutputStream os = response.getOutputStream();
+
         response.setStatus(HttpStatus.OK.value());
         response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
-        response.setContentLength(buffer.remaining());
+        response.setContentLength(size);
 
-        WritableByteChannel channel = Channels.newChannel(response.getOutputStream());
-        channel.write(buffer);
+        int length;
+        byte[] buf = new byte[TRANSFER_SIZE];
+        while (buffer.remaining() > 0) {
+            length = Math.min(buffer.remaining(), TRANSFER_SIZE);
+            buffer.get(buf, 0, length);
+            os.write(buf, 0, length);
+        }
 
         int took = ms.reportMetrics("get", c, start);
-        ms.gauge("get.size." + c, buffer.remaining());
+        ms.gauge("get.size." + c, size);
         ms.time("get.took." + c, took);
-        ms.increment("get.total.size." + c, buffer.remaining());
+        ms.increment("get.total.size." + c, size);
         ms.increment("get.total.time." + c, took);
     }
 
