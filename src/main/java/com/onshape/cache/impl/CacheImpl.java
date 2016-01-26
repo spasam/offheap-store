@@ -114,7 +114,7 @@ public class CacheImpl implements Cache, InitializingBean {
 
     @Override
     @Scheduled(initialDelay = 3600_000L, fixedDelayString = "${expiredCleanupDelayMs}")
-    public boolean cleanupExpired() {
+    public void cleanupExpired() {
         if (cleanupLock.tryLock()) {
             try {
                 long start = System.currentTimeMillis();
@@ -133,11 +133,8 @@ public class CacheImpl implements Cache, InitializingBean {
             } finally {
                 cleanupLock.unlock();
             }
-
-            return true;
         }
 
         LOG.warn("Cleanup is already running. Ignoring request");
-        return false;
     }
 }

@@ -151,7 +151,11 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         long start = System.currentTimeMillis();
         Path path = Paths.get(root, key);
         Path parent = path.getParent();
-        if (Files.notExists(path.getParent())) {
+        if (parent == null) {
+            onError.apply(key);
+            throw new CacheException("Unable to find parent of path: " + path);
+        }
+        if (Files.notExists(parent)) {
             try {
                 Files.createDirectories(parent);
             } catch (Throwable e) {

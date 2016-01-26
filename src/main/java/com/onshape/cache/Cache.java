@@ -55,7 +55,7 @@ public interface Cache {
     /**
      * Method to force cleanup of expired entries. Cache periodically cleans up expired entries.
      */
-    boolean cleanupExpired();
+    void cleanupExpired();
 
     /**
      * Returns list of cache keys that match the specified prefix.

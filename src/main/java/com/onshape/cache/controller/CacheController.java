@@ -27,7 +27,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 import com.onshape.cache.Cache;
 import com.onshape.cache.exception.CacheException;
-import com.onshape.cache.exception.ConflictException;
 import com.onshape.cache.exception.EntryNotFoundException;
 import com.onshape.cache.metrics.MetricService;
 
@@ -247,9 +246,7 @@ public class CacheController {
 
     @RequestMapping(method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
-    public void cleanupExpired() throws ConflictException {
-        if (!cache.cleanupExpired()) {
-            throw new ConflictException("Cleanup is currently running");
-        }
+    public void cleanupExpired() {
+        cache.cleanupExpired();
     }
 }

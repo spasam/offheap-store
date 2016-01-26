@@ -24,13 +24,6 @@ public class ExceptionHandlerController extends ResponseEntityExceptionHandler {
         return new ErrorInfo(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Internal server error: " + ex.getMessage());
     }
 
-    @ResponseStatus(value = HttpStatus.CONFLICT)
-    @ExceptionHandler({ ConflictException.class })
-    @ResponseBody
-    ErrorInfo handleConflictError(HttpServletRequest req, HttpServletResponse res, Exception ex) {
-        return new ErrorInfo(HttpStatus.CONFLICT.value(), "Conflict: " + ex.getMessage());
-    }
-
     @ResponseStatus(value = HttpStatus.NOT_FOUND)
     @ExceptionHandler({ EntryNotFoundException.class })
     void handleNotFound(HttpServletRequest req, HttpServletResponse res, Exception ex) {
