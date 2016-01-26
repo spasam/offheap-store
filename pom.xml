@@ -4,7 +4,8 @@
   <groupId>com.onshape</groupId>
   <artifactId>offheap-store</artifactId>
   <version>1.1</version>
-  <name>Onshape Cache service</name>
+  <name>OffHeap Store</name>
+  <description>OffHeap Store</description>
   <url>http://maven.apache.org</url>
 
   <parent>
@@ -13,19 +14,32 @@
     <version>1.3.1.RELEASE</version>
   </parent>
 
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>manual</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>spasam</id>
+      <name>Seshu Pasam</name>
+      <url>https://github.com/spasam</url>
+      <roles>
+        <role>developer</role>
+      </roles>
+      <timezone>America/New_York</timezone>
+    </developer>
+  </developers>
+
   <dependencies>
     <!-- Guava -->
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
       <version>19.0</version>
-    </dependency>
-
-    <!-- Netty -->
-    <dependency>
-      <groupId>io.netty</groupId>
-      <artifactId>netty-buffer</artifactId>
-      <version>4.0.33.Final</version>
     </dependency>
 
     <!-- Spring -->
@@ -53,6 +67,16 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpcore</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

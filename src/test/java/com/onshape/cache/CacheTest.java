@@ -48,13 +48,6 @@ public class CacheTest {
             Thread.sleep(1000L);
             checkGet(key, value, size);
 
-            // Remove from diskStore and try again
-            if (kb <= 1024) {
-                diskStore.removeAsync(key);
-                Thread.sleep(1000L);
-                checkGet(key, value, size);
-            }
-
             // Remove from everywhere and try again
             Assert.assertTrue(onHeap.remove(key));
             offHeap.removeAsync(key);
@@ -111,7 +104,7 @@ public class CacheTest {
 
     @Test
     public void replaceOnDisk() throws Exception {
-        int size = 4 * 1024;
+        int size = (4 * 1024 * 1024) + 1;
         String key = getRandomKey();
         byte[] value = getRandomBytes(size);
 
@@ -124,7 +117,7 @@ public class CacheTest {
         Thread.sleep(1000L);
 
         // Put a new value (smaller)
-        size = 1024;
+        size = 1024 * 1024;
         value = getRandomBytes(size);
         cache.put(key, value, EXPIRES, true);
         Thread.sleep(1000L);
@@ -137,7 +130,7 @@ public class CacheTest {
         checkGet(key, value, size);
 
         // Put a new value (larger)
-        size = 8 * 1024;
+        size = (8 * 1024 * 1024) + 1;
         value = getRandomBytes(size);
         cache.put(key, value, EXPIRES, true);
         Thread.sleep(1000L);

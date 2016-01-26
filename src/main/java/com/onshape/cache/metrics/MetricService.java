@@ -14,6 +14,11 @@ import org.springframework.stereotype.Service;
 import com.timgroup.statsd.NonBlockingStatsDClient;
 import com.timgroup.statsd.StatsDClientErrorHandler;
 
+/**
+ * Metrics service. Provides public metrics queryable via HTTP interface. Also provides metrics for statsd.
+ *
+ * @author Seshu Pasam
+ */
 @Service
 public class MetricService implements PublicMetrics, InitializingBean {
     private static final Logger LOG = LoggerFactory.getLogger(MetricService.class);
@@ -78,26 +83,26 @@ public class MetricService implements PublicMetrics, InitializingBean {
             return;
         }
         Metric<?> metric = metrics.compute(prefix,
-                (k, m) -> (m == null)
-                        ? new Metric<Long>(COUNTER_PREFIX + prefix, (long) increment)
-                        : m.increment(increment));
-        if (client != null) {
+                        (k, m) -> (m == null)
+                                        ? new Metric<Long>(COUNTER_PREFIX + prefix, (long) increment)
+                                        : m.increment(increment));
+        if (statsdEnabled) {
             client.count(metric.getName(), metric.getValue().longValue());
         }
     }
 
     public void gauge(String prefix, double value) {
         Metric<?> metric = metrics.compute(GAUGE_PREFIX + prefix,
-                (k, m) -> (m == null) ? new Metric<Double>(k, value) : m.set(value));
-        if (client != null) {
+                        (k, m) -> (m == null) ? new Metric<Double>(k, value) : m.set(value));
+        if (statsdEnabled) {
             client.gauge(metric.getName(), metric.getValue().doubleValue());
         }
     }
 
     public void time(String prefix, long tookMs) {
         Metric<?> metric = metrics.compute(TIMER_PREFIX + prefix,
-                (k, m) -> (m == null) ? new Metric<Long>(k, tookMs) : m.set(tookMs));
-        if (client != null) {
+                        (k, m) -> (m == null) ? new Metric<Long>(k, tookMs) : m.set(tookMs));
+        if (statsdEnabled) {
             client.recordExecutionTime(metric.getName(), metric.getValue().longValue());
         }
     }
