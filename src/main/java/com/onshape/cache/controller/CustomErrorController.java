@@ -11,6 +11,11 @@ import org.springframework.web.bind.annotation.ResponseBody;
 
 import com.onshape.cache.exception.ErrorInfo;
 
+/**
+ * Error controller for Spring MVC.
+ *
+ * @author Seshu Pasam
+ */
 @Controller
 @RequestMapping("/error")
 public class CustomErrorController implements ErrorController {

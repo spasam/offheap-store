@@ -10,6 +10,11 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+/**
+ * Simple byte buffer pool that provides methods to allocate and release {@code CompositeByteBuffer}
+ *
+ * @author Seshu Pasam
+ */
 @Component
 public class BufferPool implements InitializingBean {
     private static final Logger LOG = LoggerFactory.getLogger(BufferPool.class);
@@ -32,12 +37,19 @@ public class BufferPool implements InitializingBean {
         LOG.info("Usable offheap size bytes: {}", usableOffHeapSizeBytes);
         LOG.info("Max offheap entries: {}", maxOffHeapEntries);
 
+        // Preallocate buffers during startup
         buffers = new ArrayList<>(maxOffHeapEntries);
         for (int i = 0; i < maxOffHeapEntries; i++) {
             buffers.add(ByteBuffer.allocateDirect(offHeapChunkSizeBytes));
         }
     }
 
+    /**
+     * Returns a composite buffer that is made up of {@code count} chunks.
+     *
+     * @param count Number of chunks.
+     * @return Composite byte buffer. {@code null} if there aren't enough buffers.
+     */
     public synchronized CompositeByteBuffer get(int count) {
         if (buffers.size() < count) {
             return null;
@@ -51,6 +63,11 @@ public class BufferPool implements InitializingBean {
         return new CompositeByteBuffer(bb);
     }
 
+    /**
+     * Releases a composite byte buffer. All the chunks in the buffer are re-used.
+     *
+     * @param cbb Composite byte buffer to release.
+     */
     public synchronized void release(CompositeByteBuffer cbb) {
         for (ByteBuffer buffer : cbb.buffers) {
             buffer.clear();

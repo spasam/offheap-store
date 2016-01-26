@@ -2,6 +2,8 @@ package com.onshape.cache.impl;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +18,11 @@ import com.onshape.cache.OffHeap;
 import com.onshape.cache.OnHeap;
 import com.onshape.cache.exception.CacheException;
 
+/**
+ * Cache implementation.
+ *
+ * @author Seshu Pasam
+ */
 @Service
 public class CacheImpl implements Cache, InitializingBean {
     private static final Logger LOG = LoggerFactory.getLogger(CacheImpl.class);
@@ -27,8 +34,13 @@ public class CacheImpl implements Cache, InitializingBean {
     @Autowired
     private DiskStore diskStore;
 
+    /** Lock help when cleaning up expired entries */
+    private Lock cleanupLock;
+
     @Override
     public void afterPropertiesSet() throws Exception {
+        cleanupLock = new ReentrantLock();
+
         long start = System.currentTimeMillis();
         diskStore.getKeys((String key, Integer expiresAtSecs) -> onHeap.put(key, expiresAtSecs));
         LOG.info("Keys from disk loaded in: {} ms", (System.currentTimeMillis() - start));
@@ -45,7 +57,11 @@ public class CacheImpl implements Cache, InitializingBean {
         if (useOffHeap && offHeap.accepts(value.length)) {
             offHeap.putAsync(key, value);
         }
-        diskStore.putAsync(key, value, expiresAtSecs);
+        diskStore.putAsync(key, value, expiresAtSecs, (String failedKey) -> {
+            onHeap.remove(failedKey);
+            offHeap.removeAsync(failedKey);
+            return null;
+        });
     }
 
     @Override
@@ -98,20 +114,30 @@ public class CacheImpl implements Cache, InitializingBean {
 
     @Override
     @Scheduled(initialDelay = 3600_000L, fixedDelayString = "${expiredCleanupDelayMs}")
-    public void cleanupExpired() {
-        long start = System.currentTimeMillis();
-        LOG.info("Running expired cleanup task");
-        onHeap.cleanupExpired((String key) -> {
+    public boolean cleanupExpired() {
+        if (cleanupLock.tryLock()) {
             try {
-                if (offHeap.isEnabled()) {
-                    offHeap.removeAsync(key);
-                }
-                diskStore.removeAsync(key);
+                long start = System.currentTimeMillis();
+                LOG.info("Running expired cleanup task");
+                onHeap.cleanupExpired((String key) -> {
+                    try {
+                        if (offHeap.isEnabled()) {
+                            offHeap.removeAsync(key);
+                        }
+                        diskStore.removeAsync(key);
+                    } catch (Exception e) {
+                        LOG.error("Error deleting expired entry: {}", key);
+                    }
+                });
+                LOG.info("Expired cleanup task completed in: {} ms", (System.currentTimeMillis() - start));
+            } finally {
+                cleanupLock.unlock();
             }
-            catch (Exception e) {
-                LOG.error("Error deleting expired entry: {}", key);
-            }
-        });
-        LOG.info("Expired cleanup task completed in: {} ms", (System.currentTimeMillis() - start));
+
+            return true;
+        }
+
+        LOG.warn("Cleanup is already running. Ignoring request");
+        return false;
     }
 }

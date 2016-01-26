@@ -33,10 +33,16 @@ import com.onshape.cache.buffer.BufferPool;
 import com.onshape.cache.buffer.CompositeByteBuffer;
 import com.onshape.cache.metrics.MetricService;
 
+/**
+ * Off heap store implementation.
+ *
+ * @author Seshu Pasam
+ */
 @Service
 public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OffHeapImpl.class);
 
+    /** Format of off heap entry */
     private static class HeapEntry {
         private final int sizeBytes;
         private final int normalizedSizeBytes;
@@ -49,6 +55,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         }
     }
 
+    /** Thread local cache for temporary direct byte buffers */
     private class ByteBufferCache extends ThreadLocal<ByteBuffer> {
         @Override
         protected ByteBuffer initialValue() {
@@ -85,16 +92,24 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     @Value("${blockDurationMs}")
     private int blockDurationMs;
 
+    /** Whether to skip off heap store temporarily */
     private AtomicBoolean temporarySkipOffHeap;
+    /** Amount of off heap bytes used */
     private AtomicLong allocatedOffHeapSize;
 
+    /** Read/write locks for concurrent access to off heap entries */
     private Lock[] readLocks;
     private Lock[] writeLocks;
 
+    /** Thread local cache for direct byte buffers */
     private ByteBufferCache byteBufferCache;
+
+    /** Cache of off heap entries */
     private Cache<String, HeapEntry> offHeapEntries;
+
+    /** List of entries evicted from cache that should be lazily cleaned up */
     private List<RemovalNotification<String, HeapEntry>> lazyCleaningList = Collections.synchronizedList(
-            new LinkedList<>());
+                    new LinkedList<>());
 
     @Override
     public void afterPropertiesSet() throws Exception {
@@ -128,14 +143,14 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         byteBufferCache = new ByteBufferCache();
 
         offHeapEntries = CacheBuilder.newBuilder()
-            .initialCapacity(maxOffHeapEntries)
-            .maximumWeight(maxOffHeapSizeBytes)
-            .weigher((String key, HeapEntry value) -> value.normalizedSizeBytes)
-            .removalListener((RemovalNotification<String, HeapEntry> rn) -> lazyCleaningList.add(rn))
-            .build();
+                        .initialCapacity(maxOffHeapEntries)
+                        .maximumWeight(maxOffHeapSizeBytes)
+                        .weigher((String key, HeapEntry value) -> value.normalizedSizeBytes)
+                        .removalListener((RemovalNotification<String, HeapEntry> rn) -> lazyCleaningList.add(rn))
+                        .build();
 
         Executors.newSingleThreadExecutor((Runnable r) -> new Thread(r, "oh-cleaner"))
-            .submit(() -> freeOffHeapEntries());
+                        .submit(() -> freeOffHeapEntries());
     }
 
     @Async
@@ -228,8 +243,9 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
     public Health health() {
         NumberFormat formatter = new DecimalFormat("#0.00");
         return new Health.Builder().up()
-            .withDetail("% full", formatter.format(((double) allocatedOffHeapSize.get() / maxOffHeapSizeBytes) * 100))
-            .build();
+                        .withDetail("% full", formatter
+                                        .format(((double) allocatedOffHeapSize.get() / maxOffHeapSizeBytes) * 100))
+                        .build();
     }
 
     private void freeOffHeapEntries() {
@@ -242,8 +258,8 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                 RemovalNotification<String, HeapEntry> notification = lazyCleaningList.remove(0);
                 RemovalCause cause = notification.getCause();
                 Assert.isTrue(cause == RemovalCause.SIZE // Size exceeded
-                        || cause == RemovalCause.EXPLICIT // Manually deleted by user
-                        || cause == RemovalCause.REPLACED); // Entry is being replaced
+                                || cause == RemovalCause.EXPLICIT // Manually deleted by user
+                                || cause == RemovalCause.REPLACED); // Entry is being replaced
 
                 HeapEntry heapEntry;
                 Lock writeLock = writeLocks[Math.abs(notification.getKey().hashCode()) % concurrencyLevel];
@@ -281,8 +297,7 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
             // Before cleaning the list again, sleep for a second
             try {
                 Thread.sleep(1000L);
-            }
-            catch (InterruptedException e) {
+            } catch (InterruptedException e) {
                 LOG.warn("Interrupted while waiting in off heap cleaner: {}", e.getMessage());
             }
         }

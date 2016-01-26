@@ -49,11 +49,11 @@ public class LiveTest {
     @Test
     public void test() throws Exception {
         HttpClient httpClient = HttpClientBuilder.create()
-            .setMaxConnTotal(100)
-            .setMaxConnPerRoute(100)
-            .setKeepAliveStrategy(DefaultConnectionKeepAliveStrategy.INSTANCE)
-            .setConnectionReuseStrategy(DefaultConnectionReuseStrategy.INSTANCE)
-            .build();
+                        .setMaxConnTotal(100)
+                        .setMaxConnPerRoute(100)
+                        .setKeepAliveStrategy(DefaultConnectionKeepAliveStrategy.INSTANCE)
+                        .setConnectionReuseStrategy(DefaultConnectionReuseStrategy.INSTANCE)
+                        .build();
 
         restTemplate = new RestTemplate();
         restTemplate.setRequestFactory(new HttpComponentsClientHttpRequestFactory(httpClient));
@@ -107,10 +107,9 @@ public class LiveTest {
 
                     if (count.get() % 10 == 0) {
                         System.out.println(cacheName + "[" + count.get() + "] Put: " + (putMs / count.get())
-                                + ". Get: " + (getMs / count.get()));
+                                        + ". Get: " + (getMs / count.get()));
                     }
-                }
-                catch (Exception e) {
+                } catch (Exception e) {
                     System.out.print(e);
                 }
             } while (true);
@@ -130,9 +129,8 @@ public class LiveTest {
         public void run() {
             try {
                 restTemplate.getForEntity(URL_PREFIX + cacheName + URL_SUFFIX + RANDOM.nextInt(count.get()),
-                        byte[].class);
-            }
-            catch (Exception e) {
+                                byte[].class);
+            } catch (Exception e) {
                 System.out.print(e);
             }
         }

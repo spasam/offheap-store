@@ -27,9 +27,15 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 import com.onshape.cache.Cache;
 import com.onshape.cache.exception.CacheException;
+import com.onshape.cache.exception.ConflictException;
 import com.onshape.cache.exception.EntryNotFoundException;
 import com.onshape.cache.metrics.MetricService;
 
+/**
+ * HTTP interface for cache service. Provides methods for CRUD operations over HTTP.
+ *
+ * @author Seshu Pasam
+ */
 @Validated
 @Controller
 @RequestMapping("/")
@@ -45,27 +51,27 @@ public class CacheController {
     private MetricService ms;
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",
-            method = RequestMethod.PUT)
+                    method = RequestMethod.PUT)
     @ResponseStatus(value = HttpStatus.CREATED)
     public void create(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("x") String x,
-            @NotNull @Size(min = 1) @PathVariable("k") String k,
-            @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
-            @NotNull @Size(min = 1) HttpEntity<byte[]> value)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("x") String x,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k,
+                    @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
+                    @NotNull @Size(min = 1) HttpEntity<byte[]> value)
+                                    throws CacheException {
         create(c, c + "/" + v + "/" + x + "/" + k, value, expireSecs);
     }
 
     @RequestMapping(path = "{c}/{v}/{k}",
-            method = RequestMethod.PUT)
+                    method = RequestMethod.PUT)
     @ResponseStatus(value = HttpStatus.CREATED)
     public void create(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("k") String k,
-            @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
-            @NotNull @Size(min = 1) HttpEntity<byte[]> value)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k,
+                    @Min(0) @RequestHeader(HEADER_EXPIRES) int expireSecs,
+                    @NotNull @Size(min = 1) HttpEntity<byte[]> value)
+                                    throws CacheException {
         create(c, c + "/" + v + "/" + k, value, expireSecs);
     }
 
@@ -85,25 +91,25 @@ public class CacheController {
     }
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",
-            method = RequestMethod.GET,
-            produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+                    method = RequestMethod.GET,
+                    produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public void get(HttpServletResponse response,
-            @NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("x") String x,
-            @NotNull @Size(min = 1) @PathVariable("k") String k)
-                    throws CacheException, IOException {
+                    @NotNull @Size(min = 1) @PathVariable("c") String c,
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("x") String x,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k)
+                                    throws CacheException, IOException {
         get(response, c, c + "/" + v + "/" + x + "/" + k);
     }
 
     @RequestMapping(path = "{c}/{v}/{k}",
-            method = RequestMethod.GET,
-            produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+                    method = RequestMethod.GET,
+                    produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public void get(HttpServletResponse response,
-            @NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("k") String k)
-                    throws CacheException, IOException {
+                    @NotNull @Size(min = 1) @PathVariable("c") String c,
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k)
+                                    throws CacheException, IOException {
         get(response, c, c + "/" + v + "/" + k);
     }
 
@@ -140,12 +146,12 @@ public class CacheController {
     }
 
     @RequestMapping(path = "list/{c}/{v}/{x}",
-            method = RequestMethod.GET)
+                    method = RequestMethod.GET)
     public @ResponseBody List<String> list(HttpServletResponse response,
-            @NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("x") String x)
-                    throws CacheException, IOException {
+                    @NotNull @Size(min = 1) @PathVariable("c") String c,
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("x") String x)
+                                    throws CacheException, IOException {
         long start = System.currentTimeMillis();
         List<String> list = cache.list(c + "/" + v + "/" + x);
         ms.reportMetrics("list", c, start);
@@ -154,23 +160,23 @@ public class CacheController {
     }
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",
-            method = RequestMethod.HEAD)
+                    method = RequestMethod.HEAD)
     @ResponseStatus(value = HttpStatus.OK)
     public void contains(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("x") String x,
-            @NotNull @Size(min = 1) @PathVariable("k") String k)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("x") String x,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k)
+                                    throws CacheException {
         contains(c, c + "/" + v + "/" + x + "/" + k);
     }
 
     @RequestMapping(path = "{c}/{v}/{k}",
-            method = RequestMethod.HEAD)
+                    method = RequestMethod.HEAD)
     @ResponseStatus(value = HttpStatus.OK)
     public void contains(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("k") String k)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k)
+                                    throws CacheException {
         contains(c, c + "/" + v + "/" + k);
     }
 
@@ -183,23 +189,23 @@ public class CacheController {
     }
 
     @RequestMapping(path = "{c}/{v}/{x}/{k}",
-            method = RequestMethod.DELETE)
+                    method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
     public void remove(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("x") String x,
-            @NotNull @Size(min = 1) @PathVariable("k") String k)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("x") String x,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k)
+                                    throws CacheException {
         remove(c, c + "/" + v + "/" + x + "/" + k);
     }
 
     @RequestMapping(path = "{c}/{v}/{k}",
-            method = RequestMethod.DELETE)
+                    method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
     public void remove(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("k") String k)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("k") String k)
+                                    throws CacheException {
         remove(c, c + "/" + v + "/" + k);
     }
 
@@ -216,21 +222,21 @@ public class CacheController {
     }
 
     @RequestMapping(path = "{c}/{v}/{x}",
-            method = RequestMethod.DELETE)
+                    method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
     public void removeHierarchy(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v,
-            @NotNull @Size(min = 1) @PathVariable("x") String x)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v,
+                    @NotNull @Size(min = 1) @PathVariable("x") String x)
+                                    throws CacheException {
         removeHierarchy(c + "/" + v + "/" + x);
     }
 
     @RequestMapping(path = "{c}/{v}",
-            method = RequestMethod.DELETE)
+                    method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
     public void removeHierarchy(@NotNull @Size(min = 1) @PathVariable("c") String c,
-            @NotNull @Size(min = 1) @PathVariable("v") String v)
-                    throws CacheException {
+                    @NotNull @Size(min = 1) @PathVariable("v") String v)
+                                    throws CacheException {
         removeHierarchy(c + "/" + v);
     }
 
@@ -241,7 +247,9 @@ public class CacheController {
 
     @RequestMapping(method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
-    public void cleanupExpired() {
-        cache.cleanupExpired();
+    public void cleanupExpired() throws ConflictException {
+        if (!cache.cleanupExpired()) {
+            throw new ConflictException("Cleanup is currently running");
+        }
     }
 }

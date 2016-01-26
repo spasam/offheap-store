@@ -10,6 +10,11 @@ import org.springframework.boot.context.embedded.tomcat.TomcatEmbeddedServletCon
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Servlet container configuration.
+ *
+ * @author Seshu Pasam
+ */
 @Configuration
 public class ContainerConfig {
     @Value("${server.port}")

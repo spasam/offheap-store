@@ -19,6 +19,11 @@ import org.springframework.stereotype.Service;
 import com.onshape.cache.OnHeap;
 import com.onshape.cache.metrics.MetricService;
 
+/**
+ * On heap cache implementation.
+ *
+ * @author Seshu Pasam
+ */
 @Service
 public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OnHeapImpl.class);
@@ -31,6 +36,7 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     @Autowired
     private MetricService ms;
 
+    /** Cache of keys and expiration times */
     private Map<String, Integer> cache;
 
     @Override
@@ -69,8 +75,8 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     public Health health() {
         NumberFormat formatter = new DecimalFormat("#0.00");
         return new Health.Builder().up()
-            .withDetail("% full", formatter.format(((double) cache.size() / maxCacheEntries) * 100))
-            .build();
+                        .withDetail("% full", formatter.format(((double) cache.size() / maxCacheEntries) * 100))
+                        .build();
     }
 
     @Async

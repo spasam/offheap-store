@@ -4,7 +4,8 @@ public class ErrorInfo {
     private int status;
     private String message;
 
-    public ErrorInfo() {}
+    public ErrorInfo() {
+    }
 
     public ErrorInfo(int status, String message) {
         this.status = status;
