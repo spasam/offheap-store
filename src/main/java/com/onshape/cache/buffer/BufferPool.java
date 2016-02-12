@@ -45,19 +45,35 @@ public class BufferPool implements InitializingBean {
     }
 
     /**
-     * Returns a composite buffer that is made up of {@code count} chunks.
+     * Returns a composite buffer. Data from {@code bytes} is copied to the composite byte buffer.
      *
-     * @param count Number of chunks.
+     * @param bytes Data to copy.
      * @return Composite byte buffer. {@code null} if there aren't enough buffers.
      */
-    public synchronized CompositeByteBuffer get(int count) {
-        if (buffers.size() < count) {
+    public CompositeByteBuffer get(byte[] bytes) {
+        int normalizedSizeBytes = (int) Math.ceil((double) bytes.length / offHeapChunkSizeBytes) * offHeapChunkSizeBytes;
+        int count = (int) Math.ceil((double) normalizedSizeBytes / offHeapChunkSizeBytes);
+
+        ByteBuffer[] bb = null;
+        synchronized  (this) {
+            if (count < buffers.size()) {
+                bb = new ByteBuffer[count];
+                for (int i = 0; i < count; i++) {
+                    bb[i] = buffers.remove(buffers.size() - 1);
+                }
+            }
+        }
+
+        if (bb == null) {
             return null;
         }
 
-        ByteBuffer[] bb = new ByteBuffer[count];
+        int offset = 0;
         for (int i = 0; i < count; i++) {
-            bb[i] = buffers.remove(0);
+            int length = Math.min(bb[i].remaining(), (bytes.length - offset));
+            bb[i].put(bytes, offset, length);
+            bb[i].flip();
+            offset += length;
         }
 
         return new CompositeByteBuffer(bb);

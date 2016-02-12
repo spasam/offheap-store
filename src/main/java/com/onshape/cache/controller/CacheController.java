@@ -26,12 +26,21 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
 import com.onshape.cache.Cache;
+import com.onshape.cache.exception.InvalidValueException;
 import com.onshape.cache.exception.CacheException;
 import com.onshape.cache.exception.EntryNotFoundException;
 import com.onshape.cache.metrics.MetricService;
 
 /**
- * HTTP interface for cache service. Provides methods for CRUD operations over HTTP.
+ * HTTP interface for cache service. Provides methods for CRUD operations over HTTP. For most of the methods below the
+ * following arguments are used:
+ *
+ * <pre>
+ * {@code c} is cache name (required)
+ * {@code v} is cache version (required)
+ * {@code x} cache context (optional)
+ * {@code k} cache key (required)
+ * </pre>
  *
  * @author Seshu Pasam
  */
@@ -49,7 +58,7 @@ public class CacheController {
     @Autowired
     private MetricService ms;
 
-    @RequestMapping(path = "{c}/{v}/{x}/{k}",
+    @RequestMapping(path = "{c}/{v}/{x}/{k:.+}",
                     method = RequestMethod.PUT)
     @ResponseStatus(value = HttpStatus.CREATED)
     public void create(@NotNull @Size(min = 1) @PathVariable("c") String c,
@@ -62,7 +71,7 @@ public class CacheController {
         create(c, c + "/" + v + "/" + x + "/" + k, value, expireSecs);
     }
 
-    @RequestMapping(path = "{c}/{v}/{k}",
+    @RequestMapping(path = "{c}/{v}/{k:.+}",
                     method = RequestMethod.PUT)
     @ResponseStatus(value = HttpStatus.CREATED)
     public void create(@NotNull @Size(min = 1) @PathVariable("c") String c,
@@ -77,6 +86,11 @@ public class CacheController {
     private void create(String c, String key, HttpEntity<byte[]> value, int expireSecs) throws CacheException {
         long start = System.currentTimeMillis();
         byte[] bytes = value.getBody();
+        if (bytes == null || bytes.length < 1) {
+            LOG.warn("Not storing entry with invalid value: {}", key);
+            throw new InvalidValueException("Invalid value for key: " + key);
+        }
+
         int size = bytes.length;
         String useOffHeap = value.getHeaders().getFirst(HEADER_USE_OFFHEAP);
 
@@ -89,9 +103,8 @@ public class CacheController {
         ms.increment("put.total.time." + c, took);
     }
 
-    @RequestMapping(path = "{c}/{v}/{x}/{k}",
-                    method = RequestMethod.GET,
-                    produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @RequestMapping(path = "{c}/{v}/{x}/{k:.+}",
+                    method = RequestMethod.GET)
     public void get(HttpServletResponse response,
                     @NotNull @Size(min = 1) @PathVariable("c") String c,
                     @NotNull @Size(min = 1) @PathVariable("v") String v,
@@ -101,9 +114,8 @@ public class CacheController {
         get(response, c, c + "/" + v + "/" + x + "/" + k);
     }
 
-    @RequestMapping(path = "{c}/{v}/{k}",
-                    method = RequestMethod.GET,
-                    produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @RequestMapping(path = "{c}/{v}/{k:.+}",
+                    method = RequestMethod.GET)
     public void get(HttpServletResponse response,
                     @NotNull @Size(min = 1) @PathVariable("c") String c,
                     @NotNull @Size(min = 1) @PathVariable("v") String v,
@@ -158,7 +170,7 @@ public class CacheController {
         return list;
     }
 
-    @RequestMapping(path = "{c}/{v}/{x}/{k}",
+    @RequestMapping(path = "{c}/{v}/{x}/{k:.+}",
                     method = RequestMethod.HEAD)
     @ResponseStatus(value = HttpStatus.OK)
     public void contains(@NotNull @Size(min = 1) @PathVariable("c") String c,
@@ -169,7 +181,7 @@ public class CacheController {
         contains(c, c + "/" + v + "/" + x + "/" + k);
     }
 
-    @RequestMapping(path = "{c}/{v}/{k}",
+    @RequestMapping(path = "{c}/{v}/{k:.+}",
                     method = RequestMethod.HEAD)
     @ResponseStatus(value = HttpStatus.OK)
     public void contains(@NotNull @Size(min = 1) @PathVariable("c") String c,
@@ -187,7 +199,7 @@ public class CacheController {
         }
     }
 
-    @RequestMapping(path = "{c}/{v}/{x}/{k}",
+    @RequestMapping(path = "{c}/{v}/{x}/{k:.+}",
                     method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
     public void remove(@NotNull @Size(min = 1) @PathVariable("c") String c,
@@ -198,7 +210,7 @@ public class CacheController {
         remove(c, c + "/" + v + "/" + x + "/" + k);
     }
 
-    @RequestMapping(path = "{c}/{v}/{k}",
+    @RequestMapping(path = "{c}/{v}/{k:.+}",
                     method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
     public void remove(@NotNull @Size(min = 1) @PathVariable("c") String c,

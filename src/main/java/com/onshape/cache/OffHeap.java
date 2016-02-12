@@ -9,12 +9,13 @@ import java.nio.ByteBuffer;
  */
 public interface OffHeap {
     /**
-     * Asynchronously put cache key/data in off heap store.
+     * Put cache key/data in off heap store.
      *
      * @param key Cache key.
      * @param value Cache data.
+     * @return {@code true} if successfully put in off heap. {@code false} otherwise.
      */
-    void putAsync(String key, byte[] value);
+    boolean put(String key, byte[] value);
 
     /**
      * Returns data associated with specified cache key. {@code null} is returned if the cache key is not found.

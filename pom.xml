@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.onshape</groupId>
   <artifactId>offheap-store</artifactId>
-  <version>1.1</version>
+  <version>1.5</version>
   <name>OffHeap Store</name>
   <description>OffHeap Store</description>
   <url>http://maven.apache.org</url>

@@ -15,29 +15,15 @@ public class CompositeByteBuffer {
     }
 
     /**
-     * Transfer data from this to the specified byte buffer {@code dst}.
+     * Transfer data from this to the specified byte buffer {@code dst}. This method can be called from multiple
+     * threads, so it is synchronized.
      *
      * @param dst Destination byte buffer.
      */
-    public void getBytes(ByteBuffer dst) {
+    public synchronized void getBytes(ByteBuffer dst) {
         for (int i = 0; i < buffers.length; i++) {
             dst.put(buffers[i]);
             buffers[i].flip();
-        }
-    }
-
-    /**
-     * Reads data from the provided byte array into this buffer.
-     *
-     * @param bytes Data to read from.
-     */
-    public void writeBytes(byte[] bytes) {
-        int offset = 0;
-        for (int i = 0; i < buffers.length; i++) {
-            int length = Math.min(buffers[i].remaining(), (bytes.length - offset));
-            buffers[i].put(bytes, offset, length);
-            buffers[i].flip();
-            offset += length;
         }
     }
 }

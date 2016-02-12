@@ -64,18 +64,21 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     @Override
     public void afterPropertiesSet() throws IOException {
-        Path dir = Paths.get(root).toRealPath();
+        Path rootDir = Paths.get(root);
+        Path dir;
+        if (Files.exists(rootDir)) {
+            if (!Files.isDirectory(rootDir)) {
+                throw new IOException("Not a directory: " + rootDir);
+            }
+            dir = rootDir.toRealPath();
+        } else {
+            dir = Files.createDirectories(rootDir);
+        }
+
         root = dir.toString();
         rootNameCount = dir.getNameCount();
 
         LOG.info("Disk store root: {}", root);
-
-        if (Files.notExists(dir)) {
-            Files.createDirectories(dir);
-        }
-        if (!Files.isDirectory(dir)) {
-            throw new IOException("Not a directory: " + dir);
-        }
 
         FileStore fs = Files.getFileStore(dir);
         if (!fs.supportsFileAttributeView(UserDefinedFileAttributeView.class)) {
@@ -144,6 +147,13 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         }
     }
 
+    @Override
+    public void put(String key, byte[] value, int expiresAtSecs, Function<String, Void> onSuccess)
+                    throws CacheException {
+        putAsync(key, value, expiresAtSecs, null);
+        onSuccess.apply(key);
+    }
+
     @Async
     @Override
     public void putAsync(String key, byte[] value, int expiresAtSecs, Function<String, Void> onError)
@@ -152,14 +162,18 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         Path path = Paths.get(root, key);
         Path parent = path.getParent();
         if (parent == null) {
-            onError.apply(key);
+            if (onError != null) {
+                onError.apply(key);
+            }
             throw new CacheException("Unable to find parent of path: " + path);
         }
         if (Files.notExists(parent)) {
             try {
                 Files.createDirectories(parent);
             } catch (Throwable e) {
-                onError.apply(key);
+                if (onError != null) {
+                    onError.apply(key);
+                }
                 throw new CacheException(e);
             }
         }
@@ -177,7 +191,9 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
                 }
             }
         } catch (Throwable e) {
-            onError.apply(key);
+            if (onError != null) {
+                onError.apply(key);
+            }
             try {
                 Files.deleteIfExists(path);
             } catch (IOException ioe) {
@@ -192,7 +208,10 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
                 buffer.putInt(expiresAtSecs);
                 buffer.flip();
 
-                Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).write(EXPIRE_ATTR, buffer);
+                UserDefinedFileAttributeView view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
+                if (view != null) {
+                    view.write(EXPIRE_ATTR, buffer);
+                }
             } catch (IOException e) {
             }
         }

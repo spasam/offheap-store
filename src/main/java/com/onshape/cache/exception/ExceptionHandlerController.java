@@ -24,6 +24,11 @@ public class ExceptionHandlerController extends ResponseEntityExceptionHandler {
         return new ErrorInfo(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Internal server error: " + ex.getMessage());
     }
 
+    @ResponseStatus(value = HttpStatus.BAD_REQUEST)
+    @ExceptionHandler({ InvalidValueException.class })
+    void handleBadRequest(HttpServletRequest req, HttpServletResponse res, Exception ex) {
+    }
+
     @ResponseStatus(value = HttpStatus.NOT_FOUND)
     @ExceptionHandler({ EntryNotFoundException.class })
     void handleNotFound(HttpServletRequest req, HttpServletResponse res, Exception ex) {

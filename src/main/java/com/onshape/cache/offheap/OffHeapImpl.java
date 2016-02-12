@@ -153,20 +153,17 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
                         .submit(() -> freeOffHeapEntries());
     }
 
-    @Async
     @Override
-    public void putAsync(String key, byte[] value) {
+    public boolean put(String key, byte[] value) {
         long start = System.currentTimeMillis();
-        int length = value.length;
-        int normalizedSizeBytes = (int) Math.ceil((double) length / offHeapChunkSizeBytes) * offHeapChunkSizeBytes;
-
-        CompositeByteBuffer buf = pool.get((int) Math.ceil((double) normalizedSizeBytes / offHeapChunkSizeBytes));
+        CompositeByteBuffer buf = pool.get(value);
         if (buf == null) {
             ms.increment("offheap.allocation.failure");
-            return;
+            return false;
         }
 
-        buf.writeBytes(value);
+        int length = value.length;
+        int normalizedSizeBytes = (int) Math.ceil((double) length / offHeapChunkSizeBytes) * offHeapChunkSizeBytes;
 
         // If we are replacing the value, removal notification will be called with old value
         // Removal notification will take care of cleaning old heap entry
@@ -177,6 +174,8 @@ public class OffHeapImpl implements OffHeap, InitializingBean, HealthIndicator {
         ms.increment("offheap.wasted", (normalizedSizeBytes - length));
         ms.increment("offheap.count");
         ms.reportMetrics("offheap.put", start);
+
+        return true;
     }
 
     @Override

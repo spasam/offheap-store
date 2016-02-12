@@ -48,20 +48,31 @@ public class CacheImpl implements Cache, InitializingBean {
 
     @Override
     public void put(String key, byte[] value, int expireSecs, boolean useOffHeap) throws CacheException {
-        int expiresAtSecs = 0;
-        if (expireSecs > 0) {
-            expiresAtSecs = (int) (System.currentTimeMillis() / 1000L) + expireSecs;
+        final int expiresAtSecs = (expireSecs > 0)
+                        ? (int) (System.currentTimeMillis() / 1000L) + expireSecs
+                        : 0;
+
+        // Synchronously put it off heap or on disk. If the put in off heap succeeds, put on disk asynchronously
+        boolean putInOffHeap = false;
+        if (useOffHeap && offHeap.accepts(value.length)) {
+            putInOffHeap = offHeap.put(key, value);
         }
 
-        onHeap.put(key, expiresAtSecs);
-        if (useOffHeap && offHeap.accepts(value.length)) {
-            offHeap.putAsync(key, value);
+        if (putInOffHeap) {
+            onHeap.put(key, expiresAtSecs);
+            diskStore.putAsync(key, value, expiresAtSecs,
+                            (String failedKey) -> {
+                                onHeap.remove(failedKey);
+                                offHeap.removeAsync(failedKey);
+                                return null;
+                            });
+        } else {
+            diskStore.put(key, value, expiresAtSecs,
+                            (String successKey) -> {
+                                onHeap.put(successKey, expiresAtSecs);
+                                return null;
+                            });
         }
-        diskStore.putAsync(key, value, expiresAtSecs, (String failedKey) -> {
-            onHeap.remove(failedKey);
-            offHeap.removeAsync(failedKey);
-            return null;
-        });
     }
 
     @Override
@@ -85,12 +96,11 @@ public class CacheImpl implements Cache, InitializingBean {
 
     @Override
     public void remove(String key) throws CacheException {
-        if (onHeap.remove(key)) {
-            if (offHeap.isEnabled()) {
-                offHeap.removeAsync(key);
-            }
-            diskStore.removeAsync(key);
+        onHeap.remove(key);
+        if (offHeap.isEnabled()) {
+            offHeap.removeAsync(key);
         }
+        diskStore.removeAsync(key);
     }
 
     @Override

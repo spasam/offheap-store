@@ -82,6 +82,7 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     @Async
     @Override
     public void cleanupExpired(Consumer<String> consumer) {
+        int count = 0;
         int now = (int) (System.currentTimeMillis() / 1000L);
         for (Map.Entry<String, Integer> entry : cache.entrySet()) {
             int expiresAtSecs = entry.getValue();
@@ -89,7 +90,11 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
                 String key = entry.getKey();
                 cache.remove(key);
                 consumer.accept(key);
+                count++;
             }
+        }
+        if (count > 0) {
+            LOG.info("Expired entries removed: {}", count);
         }
     }
 }

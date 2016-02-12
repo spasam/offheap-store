@@ -18,11 +18,13 @@ import org.apache.http.impl.client.DefaultConnectionKeepAliveStrategy;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.tomcat.util.http.fileupload.IOUtils;
 import org.junit.Ignore;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.boot.test.SpringApplicationConfiguration;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 import org.springframework.util.MultiValueMap;
@@ -61,7 +63,7 @@ public class LiveTest {
         int cacheIndex = 0;
         es = Executors.newFixedThreadPool(100);
 
-        for (int size : new int[] { 1024, 4096, 65536, 262144, 524288, 1048576, 4194304, 16777216, 33554432 }) {
+        for (int size : new int[] { 1025, 4097, 65535, 262145, 524287, 1048577, 4194305, 16777217, 33554431 }) {
             es.submit(new PutTask((char) ('a' + cacheIndex++) + "", size));
         }
 
@@ -98,19 +100,19 @@ public class LiveTest {
                     start = System.currentTimeMillis();
                     List<Future<?>> futures = new ArrayList<>();
                     for (int i = 0; i < 9; i++) {
-                        futures.add(es.submit(new GetTask(cacheName, count)));
+                        futures.add(es.submit(new GetTask(cacheName, count, bytes)));
                     }
                     for (int i = 0; i < 9; i++) {
                         futures.get(i).get();
                     }
                     getMs += (System.currentTimeMillis() - start);
 
-                    if (count.get() % 10 == 0) {
+                    if (count.get() % 100 == 0) {
                         System.out.println(cacheName + "[" + count.get() + "] Put: " + (putMs / count.get())
                                         + ". Get: " + (getMs / count.get()));
                     }
                 } catch (Exception e) {
-                    System.out.print(e);
+                    System.out.println(e);
                 }
             } while (true);
         }
@@ -119,19 +121,24 @@ public class LiveTest {
     private class GetTask implements Runnable {
         private final String cacheName;
         private final AtomicInteger count;
+        private final byte[] expected;
 
-        private GetTask(String cacheName, AtomicInteger count) {
+        private GetTask(String cacheName, AtomicInteger count, byte[] expected) {
             this.cacheName = cacheName;
             this.count = count;
+            this.expected = expected;
         }
 
         @Override
         public void run() {
             try {
-                restTemplate.getForEntity(URL_PREFIX + cacheName + URL_SUFFIX + RANDOM.nextInt(count.get()),
-                                byte[].class);
+                String key = URL_PREFIX + cacheName + URL_SUFFIX + RANDOM.nextInt(count.get());
+                ResponseEntity<byte[]> response = restTemplate.getForEntity(key, byte[].class);
+                Assert.assertNotNull("Invalid response", response);
+                Assert.assertNotNull("Invalid response body: " + response.getStatusCode(), response.getBody());
+                Assert.assertArrayEquals("Bytes mis-match", expected, response.getBody());
             } catch (Exception e) {
-                System.out.print(e);
+                System.out.println(e);
             }
         }
     }

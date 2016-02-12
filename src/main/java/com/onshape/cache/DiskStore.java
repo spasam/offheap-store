@@ -27,6 +27,17 @@ public interface DiskStore {
     void putAsync(String key, byte[] value, int expiresAtSecs, Function<String, Void> onError) throws CacheException;
 
     /**
+     * Synchronously save the specified cache key/value data on disk. If an entry already exists on disk, it will be
+     * overwritten. Expiration information will be persisted as extended user attributes on the file.
+     *
+     * @param key Cache key (file path)
+     * @param value Cache data (file contents)
+     * @param expiresAtSecs When the cache entry expires (in seconds from epoch).
+     * @param onSuccess Function to be applied if the data to the disk is successfully written to disk.
+     */
+    void put(String key, byte[] value, int expiresAtSecs, Function<String, Void> onSuccess) throws CacheException;
+
+    /**
      * Returns data for the specified cache key as byte buffer.
      *
      * @param key Cache key.
