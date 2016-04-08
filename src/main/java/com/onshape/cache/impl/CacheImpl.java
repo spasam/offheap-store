@@ -2,6 +2,7 @@ package com.onshape.cache.impl;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import com.onshape.cache.Cache;
@@ -33,6 +35,8 @@ public class CacheImpl implements Cache, InitializingBean {
     private OffHeap offHeap;
     @Autowired
     private DiskStore diskStore;
+    @Autowired
+    private ThreadPoolTaskExecutor executor;
 
     /** Lock help when cleaning up expired entries */
     private Lock cleanupLock;
@@ -41,9 +45,21 @@ public class CacheImpl implements Cache, InitializingBean {
     public void afterPropertiesSet() throws Exception {
         cleanupLock = new ReentrantLock();
 
-        long start = System.currentTimeMillis();
-        diskStore.getKeys((String key, Integer expiresAtSecs) -> onHeap.put(key, expiresAtSecs));
-        LOG.info("Keys from disk loaded in: {} ms", (System.currentTimeMillis() - start));
+        // Load existing key/expiration information from disk
+        Map<String, Integer> existingKeys = diskStore.readKeys();
+        if (existingKeys != null) {
+            LOG.info("Loaded existing keys/expiration information. Size: {}", existingKeys.size());
+        }
+
+        // Initialize on heap storage
+        onHeap.init(existingKeys);
+
+        if (existingKeys == null) {
+            // If existing keys information is not found or corrupt, do the expensive loading
+            long start = System.currentTimeMillis();
+            diskStore.getKeys((String key, Integer expiresAtSecs) -> onHeap.put(key, expiresAtSecs));
+            LOG.info("Keys from disk loaded in: {} ms", (System.currentTimeMillis() - start));
+        }
     }
 
     @Override
@@ -113,7 +129,6 @@ public class CacheImpl implements Cache, InitializingBean {
         diskStore.checkHierarchy(prefix);
         diskStore.removeHierarchyAsync(prefix, (String key) -> {
             if (key != null) {
-                LOG.info("Delete entry (hierarchy): {}", key);
                 onHeap.remove(key);
                 if (offHeap.isEnabled()) {
                     offHeap.removeAsync(key);
@@ -143,8 +158,32 @@ public class CacheImpl implements Cache, InitializingBean {
             } finally {
                 cleanupLock.unlock();
             }
+        } else {
+            LOG.warn("Cleanup is already running. Ignoring request");
+        }
+    }
+
+    @Override
+    public void shutdown() throws CacheException {
+        // Acquire cleanup lock so that cleanup will not run. Do not release it because we are shutting down
+        LOG.debug("Waiting for cleanup lock");
+        cleanupLock.lock();
+
+        // Wait for executor to shutdown
+        LOG.debug("Shutting down executor");
+        executor.shutdown();
+
+        try {
+            // Wait for any other pending tasks
+            Thread.sleep(5000L);
+
+            // Flush the key map to disk
+            LOG.debug("Flushing keys to disk");
+            diskStore.writeKeys(onHeap.getKeys());
+        } catch (Exception e) {
+            throw new CacheException("Error shutting down cache server", e);
         }
 
-        LOG.warn("Cleanup is already running. Ignoring request");
+        System.exit(0);
     }
 }

@@ -1,7 +1,9 @@
 package com.onshape.cache;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -82,4 +84,18 @@ public interface DiskStore {
      * @return Cache keys matching the specified prefix.
      */
     List<String> list(String prefix) throws CacheException;
+
+    /**
+     * Read keys and expiration information from disk. If the file that contains this information is missing or is
+     * corrupt, {@code null} is returned. Whether the read was successful or not, this method deletes the file before
+     * returning. So this is a one shot call.
+     */
+    Map<String, Integer> readKeys();
+
+    /**
+     * Writes specified key map with expiration information to disk.
+     *
+     * @param keys Map to persist on disk.
+     */
+    void writeKeys(Map<String, Integer> keys) throws IOException;
 }

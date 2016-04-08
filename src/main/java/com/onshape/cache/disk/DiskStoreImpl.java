@@ -1,12 +1,20 @@
 package com.onshape.cache.disk;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
@@ -15,6 +23,7 @@ import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -49,6 +58,7 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
     private static final int TRANSFER_SIZE = 1024 * 1024;
     private static final String EXPIRE_ATTR = "e";
     private static final String LOST_FOUND = "lost+found";
+    private static final String KEY_MAP = "ohs.keys";
 
     @Autowired
     private MetricService ms;
@@ -58,9 +68,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     /** Number of parts in root directory */
     private int rootNameCount;
-
-    /** Where expiration is supported or not */
-    private boolean expirationSupported;
 
     @Override
     public void afterPropertiesSet() throws IOException {
@@ -79,13 +86,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
         rootNameCount = dir.getNameCount();
 
         LOG.info("Disk store root: {}", root);
-
-        FileStore fs = Files.getFileStore(dir);
-        if (!fs.supportsFileAttributeView(UserDefinedFileAttributeView.class)) {
-            expirationSupported = true;
-        } else {
-            LOG.error("File store '{}' does not support user file attributes. Expiration support is disabled", fs);
-        }
     }
 
     @Override
@@ -114,25 +114,35 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     @Override
     public List<String> list(String prefix) throws CacheException {
-        long start = System.currentTimeMillis();
         Path path = Paths.get(root, prefix);
-        if (Files.notExists(path)) {
-            ms.increment("disk.list.miss");
-            throw new EntryNotFoundException();
-        }
-
         try {
-            List<String> keys = new ArrayList<>();
-            Files.walk(path, 1)
-                            .filter((Path p) -> Files.isRegularFile(p))
-                            .forEach((Path p) -> keys.add(p.getFileName().toString()));
+            int tries = 0;
+            do {
+                try {
+                    long start = System.currentTimeMillis();
+                    if (Files.notExists(path)) {
+                        ms.increment("disk.list.miss");
+                        throw new EntryNotFoundException();
+                    }
 
-            ms.reportMetrics("disk.list", start);
-            return keys;
+                    List<String> keys = new ArrayList<>();
+                    Files.walk(path, 1)
+                                    .filter((Path p) -> Files.isRegularFile(p))
+                                    .forEach((Path p) -> keys.add(p.getFileName().toString()));
+
+                    ms.reportMetrics("disk.list", start);
+                    return keys;
+                } catch (NoSuchFileException fe) {
+                    // While walking the path, if one or more entries got removed because of expiration cleanup task
+                    // NoSuchFileException will be throw. Try to walk the path again
+                }
+            } while (tries++ < 10);
         } catch (IOException e) {
             LOG.error("Failed to list directory: {}", prefix, e);
             throw new CacheException(e);
         }
+
+        throw new EntryNotFoundException();
     }
 
     @Async
@@ -189,8 +199,11 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
                     ByteBuffer buffer = ByteBuffer.wrap(value, offset, length);
                     offset += fileChannel.write(buffer);
                 }
+
+                fileChannel.force(true);
             }
         } catch (Throwable e) {
+            LOG.warn("Error writing to disk: {}", key, e);
             if (onError != null) {
                 onError.apply(key);
             }
@@ -202,18 +215,15 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             throw new CacheException(e);
         }
 
-        if (expirationSupported) {
-            try {
+        try {
+            UserDefinedFileAttributeView view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
+            if (view != null) {
                 ByteBuffer buffer = ByteBuffer.allocate(4);
                 buffer.putInt(expiresAtSecs);
                 buffer.flip();
-
-                UserDefinedFileAttributeView view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
-                if (view != null) {
-                    view.write(EXPIRE_ATTR, buffer);
-                }
-            } catch (IOException e) {
+                view.write(EXPIRE_ATTR, buffer);
             }
+        } catch (IOException e) {
         }
 
         ms.reportMetrics("disk.put", start);
@@ -245,10 +255,6 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     @Override
     public void getKeys(BiConsumer<String, Integer> consumer) throws InterruptedException, ExecutionException {
-        if (!expirationSupported) {
-            return;
-        }
-
         List<String> cacheNames = getCacheNames();
         cacheNames.remove(LOST_FOUND);
         if (cacheNames.size() < 1) {
@@ -268,6 +274,42 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
             }
         } finally {
             es.shutdown();
+        }
+    }
+
+    @SuppressWarnings({ "unchecked" })
+    @Override
+    public Map<String, Integer> readKeys() {
+        Path path = Paths.get(root, KEY_MAP);
+        FileInputStream fis;
+        try {
+            fis = new FileInputStream(path.toFile());
+        } catch (FileNotFoundException e1) {
+            LOG.warn("{} does not exist", KEY_MAP);
+            return null;
+        }
+
+        try (ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(fis))) {
+            return (Map<String, Integer>) ois.readObject();
+        } catch (Exception e) {
+            LOG.warn("Error reading {}. Ignoring", KEY_MAP);
+        } finally {
+            try {
+                Files.delete(path);
+            } catch (IOException e) {
+                LOG.warn("Error deleting: {}", KEY_MAP);
+            }
+        }
+
+        return null;
+    }
+
+    @Override
+    public void writeKeys(Map<String, Integer> keys) throws IOException {
+        try (FileOutputStream fos = new FileOutputStream(Paths.get(root, KEY_MAP).toFile())) {
+            ObjectOutputStream oos = new ObjectOutputStream(new BufferedOutputStream(fos));
+            oos.writeObject(keys);
+            oos.flush();
         }
     }
 
@@ -340,8 +382,13 @@ public class DiskStoreImpl implements DiskStore, InitializingBean, HealthIndicat
 
     private int getExpiresAt(Path path) {
         try {
+            UserDefinedFileAttributeView view = Files.getFileAttributeView(path, UserDefinedFileAttributeView.class);
+            if (view == null) {
+                return 0;
+            }
+
             ByteBuffer buffer = ByteBuffer.allocate(4);
-            Files.getFileAttributeView(path, UserDefinedFileAttributeView.class).read(EXPIRE_ATTR, buffer);
+            view.read(EXPIRE_ATTR, buffer);
             buffer.flip();
 
             return buffer.hasRemaining() ? buffer.getInt() : 0;

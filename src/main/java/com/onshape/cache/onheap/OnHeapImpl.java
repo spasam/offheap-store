@@ -8,7 +8,6 @@ import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
@@ -25,7 +24,7 @@ import com.onshape.cache.metrics.MetricService;
  * @author Seshu Pasam
  */
 @Service
-public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
+public class OnHeapImpl implements OnHeap, HealthIndicator {
     private static final Logger LOG = LoggerFactory.getLogger(OnHeapImpl.class);
 
     @Value("${maxCacheEntries}")
@@ -40,12 +39,16 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
     private Map<String, Integer> cache;
 
     @Override
-    public void afterPropertiesSet() {
+    public void init(Map<String, Integer> existingKeys) {
         LOG.info("Max cache entries: {}", maxCacheEntries);
 
         cache = new ConcurrentHashMap<>(maxCacheEntries, 1.0f, concurrencyLevel);
         cache.put("", 0); // Force create the buckets during startup
         cache.remove("");
+
+        if (existingKeys != null) {
+            cache.putAll(existingKeys);
+        }
     }
 
     @Override
@@ -96,5 +99,10 @@ public class OnHeapImpl implements OnHeap, InitializingBean, HealthIndicator {
         if (count > 0) {
             LOG.info("Expired entries removed: {}", count);
         }
+    }
+
+    @Override
+    public Map<String, Integer> getKeys() {
+        return cache;
     }
 }

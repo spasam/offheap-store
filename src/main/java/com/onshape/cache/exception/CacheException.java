@@ -23,4 +23,8 @@ public class CacheException extends Exception {
     public CacheException(Throwable t) {
         super(t);
     }
+
+    public CacheException(String message, Throwable t) {
+        super(message, t);
+    }
 }

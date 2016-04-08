@@ -64,4 +64,9 @@ public interface Cache {
      * @return List of cache keys that match the prefix. Or empty list, if none found.
      */
     List<String> list(String prefix) throws CacheException;
+
+    /**
+     * Request cache serice shutdown.
+     */
+    void shutdown() throws CacheException;
 }
